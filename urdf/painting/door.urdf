@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<robot name="carDoor">
+  <link name="carDoor_base_link">
+
+    <visual>
+      <origin rpy="0 0 0" xyz="0.0 0.0 0.0"/>
+      <geometry>
+          <mesh filename="test.obj" scale="1 1 1"/>
+      </geometry>
+      <material name="gray">
+        <color rgba="0.8 0.8 0.8 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="0 0 0" xyz="0.0 0.0 0.0"/>
+      <geometry>
+          <mesh filename="test.obj" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+</robot>

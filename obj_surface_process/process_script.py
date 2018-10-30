@@ -2,6 +2,7 @@
 """
 Please make sure that Blender is accessible in terminal
 """
+import os
 import tempfile
 from subprocess import Popen, PIPE
 import argparse
@@ -31,8 +32,8 @@ obj = bpy.context.selected_objects[0]
 # resize the object
 size = obj.dimensions
 std_scale = Vector((1.0, 1.0, 1.0))
-if max(size) not in range(2, 5):
-    scale = max(size) / 3.5
+if not 0.5 <= max(size) <= 1.5:
+    scale = max(size) / 1
     bpy.ops.transform.resize(value=std_scale/scale, proportional='ENABLED')
     
 # create new material and link it to the object
@@ -62,7 +63,8 @@ bpy.ops.export_scene.obj(filepath={2}, use_selection=True)
 
 
 if __name__ == '__main__':
-    default_root = '/home/pyang/MasterThesis/pybullet-gym/urdf/painting/'
+    default_root = os.path.dirname(os.path.realpath(__file__))
+    default_root = os.path.join(os.path.dirname(default_root), 'urdf/painting/')
     parser = argparse.ArgumentParser()
     parser.add_argument('-i', '--input-path', default=default_root + 'carDoor.obj')
     parser.add_argument('-t', '--texture-path', default=default_root + 'pattern.jpg')

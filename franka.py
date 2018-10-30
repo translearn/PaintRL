@@ -1,5 +1,5 @@
 import os
-import pybullet as p
+import obj_surface_process.bullet_paint_wrapper as p
 
 
 class Franka:
@@ -24,7 +24,7 @@ class Franka:
 
     def _load_robot_info(self):
         self.joint_count = self._p.getNumJoints(self.robot_id)
-        self._end_effector_idx = self.joint_count
+        self._end_effector_idx = self.joint_count - 1
 
         self._jd = [1e-5 for _ in range(self.joint_count)]
         self._max_forces = [200 for _ in range(self._motor_count)]
@@ -59,12 +59,14 @@ class Franka:
         """
         joint_indices = []
         for i in range(len(motor_set_value)):
-            if motor_set_value not in range(self._motor_lower_limits[i], self._motor_upper_limits[i]):
-                raise ValueError('The given motor value on axis {0} is out of motor limits'.format(i))
+            # if not self._motor_lower_limits[i] <= motor_set_value[i] <= self._motor_upper_limits[i]:
+            #     raise ValueError('The given motor value on axis {0} is out of motor limits'.format(i))
             joint_indices.append(i)
 
         self._p.setJointMotorControlArray(self.robot_id, joint_indices, self._p.POSITION_CONTROL, motor_set_value,
-                                          force=self._max_forces)
+                                          forces=self._max_forces)
+        link_state = self._p.getLinkState(self.robot_id, self._end_effector_idx)
+        return link_state[0], link_state[1]
 
 
 if __name__ == '__main__':
