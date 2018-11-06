@@ -2,7 +2,7 @@ import os
 import obj_surface_process.bullet_paint_wrapper as p
 
 
-class Franka:
+class Robot:
 
     def __init__(self, urdf_path, pos=(0, 0, 0), orn=(0, 0, 0, 1)):
         self._p = p
@@ -79,4 +79,4 @@ if __name__ == '__main__':
 
     current_dir = os.path.dirname(os.path.realpath(__file__))
     franka_urdf_path = os.path.join(current_dir, 'urdf', 'franka_description', 'robots', 'panda_arm.urdf')
-    f = Franka(franka_urdf_path)
+    f = Robot(franka_urdf_path)

@@ -16,6 +16,19 @@ BULLET_LIB_PATH = pybullet_data.getDataPath()
 _urdf_cache = {}
 
 
+def _show_flange_debug_line(points):
+    # only for debug purpose, robot pose may change afterwards
+    robot_pose = getLinkState(2, 6)[0]
+    for point in points:
+        addUserDebugLine(robot_pose, point, [0, 1, 0])
+
+
+def _show_texture_image(pixels, width, height):
+    pixel_array = np.reshape(np.asarray(pixels), (width, height, 3))
+    img = Image.fromarray(pixel_array, 'RGB')
+    img.show()
+
+
 class URDF:
     """
     Store the loaded urdf cache and its correspondent change texture parameters
@@ -28,45 +41,22 @@ class URDF:
         self.texture_width = None
         self.texture_height = None
         self.texture_pixels = None
-        self.inverted_pose, self.inverted_orn = invertTransform(*getBasePositionAndOrientation(self.urdf_id))
-
-    def _get_local_coordinate(self, points):
-        local_points = []
-        for point in points:
-            pose, _ = multiplyTransforms(self.inverted_pose, self.inverted_orn, point, [0, 0, 0, 1])
-            local_points.append(pose)
-        return local_points
 
     def paint(self, points, color):
-        color = [i * 255 for i in color]
-        points = self._get_local_coordinate(points)
+        color = [np.uint8(i * 255) for i in color]
         nearest_neighbors = self.vertices_kd_tree.query(points, k=3)
         related_indexes = nearest_neighbors[1]
 
-        # # debug
-        # base_pose, base_orn = getBasePositionAndOrientation(self.urdf_id)
-        # robot_pose = getLinkState(2, 6)[0]
-        # for index_set in nearest_neighbors[1]:
-        #     for index in index_set:
-        #         # for point in point_set:
-        #         #     # curr_pose, curr_orn = multiplyTransforms()
-        #         point, _ = multiplyTransforms(base_pose, base_orn, self.vertices_kd_tree.data[index], [0, 0, 0, 1])
-        #         p.addUserDebugLine(robot_pose, point, [0, 1, 0])
-
         extracted_indexes = list(set([j for i in related_indexes for j in i]))
-        before = np.array(self.texture_pixels, copy=True)
         for index in extracted_indexes:
-            pixel = self.uv_map[index][0]
-            self.texture_pixels[pixel] = color[0]
-            self.texture_pixels[pixel + 1] = color[1]
-            self.texture_pixels[pixel + 2] = color[2]
+            for pixel in self.uv_map[index]:
+                self.texture_pixels[pixel] = color[0]
+                self.texture_pixels[pixel + 1] = color[1]
+                self.texture_pixels[pixel + 2] = color[2]
 
-        # debug
-        # pixel_array = np.reshape(np.asarray(self.texture_pixels), (240, 240, 3))
-        # pixel_array = np.asarray(self.texture_pixels).reshape((240, 240, 3))
-        pixel_array = before.reshape((240, 240, 3))
-        img = Image.fromarray(pixel_array, 'RGB')
-        img.show()
+        # # debug
+        # _show_flange_debug_line([self.vertices_kd_tree.data[i] for i in extracted_indexes])
+        # _show_texture_image(self.texture_pixels, self.texture_width, self.texture_height)
 
         changeTexture(self.texture_id, self.texture_pixels, self. texture_width, self.texture_height)
 
@@ -131,6 +121,15 @@ def _cache_texture(urdf_obj, obj_path, texture_path):
         _cache_obj(urdf_obj, obj_path)
 
 
+def _get_global_coordinate(urdf_id, points):
+    base_pose, base_orn = getBasePositionAndOrientation(urdf_id)
+    local_points = []
+    for point in points:
+        pose, _ = multiplyTransforms(base_pose, base_orn, point, [0, 0, 0, 1])
+        local_points.append(pose)
+    return local_points
+
+
 def _cache_obj(urdf_obj, obj_path):
     # assume strictly that v comes first, then vt, then f.
     v_array = []
@@ -141,16 +140,19 @@ def _cache_obj(urdf_obj, obj_path):
             if not len(content):
                 continue
             if content[0] == 'v':
-                v_array.append(content[1:])
+                coordinate = []
+                for v in content[1:]:
+                    coordinate.append(float(v))
+                v_array.append(coordinate)
             elif content[0] == 'vt':
                 # pixels_coord = uv_coord * [width, height], normal round up, without Bilinear filtering
                 # some uv coordinate are not in range [0, 1], therefore mode the calculated value
                 i = int(round(urdf_obj.texture_width * float(content[1]))) % urdf_obj.texture_width
-                j = int(round(urdf_obj.texture_height * float(content[2]))) % urdf_obj.texture_height
+                j = int(round(urdf_obj.texture_height * (1 - float(content[2])))) % urdf_obj.texture_height
                 # linear position of the pixel values, 0 -> R, +1 -> G, +2 -> B
                 vt_array.append((i + j * urdf_obj.texture_width) * 3)
         f.seek(0)
-        uv_map = np.zeros(shape=[len(v_array), 1], dtype=int)
+        uv_map = {}
         for line in f:
             content = line.split()
             if not len(content):
@@ -158,9 +160,12 @@ def _cache_obj(urdf_obj, obj_path):
             if content[0] == 'f':
                 for item in content[1:]:
                     temp = item.split('/')
-                    uv_map[int(temp[0]) - 1] = vt_array[int(temp[1]) - 1]
-
-        urdf_obj.vertices_kd_tree = cKDTree(v_array)
+                    v_index, vt_index = int(temp[0]) - 1, int(temp[1]) - 1
+                    if v_index not in uv_map:
+                        uv_map[v_index] = []
+                    uv_map[v_index].append(vt_array[vt_index])
+        global_v_array = _get_global_coordinate(urdf_obj.urdf_id, v_array)
+        urdf_obj.vertices_kd_tree = cKDTree(global_v_array)
         urdf_obj.uv_map = uv_map
 
 

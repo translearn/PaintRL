@@ -3,7 +3,7 @@ import math
 import obj_surface_process.bullet_paint_wrapper as p
 import gym
 from gym.utils import seeding
-from franka import Franka
+from robot import Robot
 
 
 class RobotGymEnv(gym.Env):
@@ -46,8 +46,8 @@ class RobotGymEnv(gym.Env):
                                         [-0.5, -0.5, 0.5], useFixedBase=True)
         # robot_urdf_path = os.path.join(self._urdf_root, 'urdf', 'franka_description', 'robots', 'panda_arm.urdf')
         # self._robot = Franka(robot_urdf_path)
-        self.robot = Franka('kuka_iiwa/model_free_base.urdf', pos=[0.2, -0.2, 0],
-                            orn=p.getQuaternionFromEuler([0, 0, math.pi*3/2]))
+        self.robot = Robot('kuka_iiwa/model_free_base.urdf', pos=[0.2, -0.2, 0],
+                           orn=p.getQuaternionFromEuler([0, 0, math.pi*3/2]))
         self.p.setGravity(0, 0, -10)
 
     def _termination(self):
