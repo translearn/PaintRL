@@ -32,7 +32,7 @@ class RobotGymEnv(gym.Env):
             cid = self.p.connect(self.p.SHARED_MEMORY)
             if cid < 0:
                 self.p.connect(self.p.GUI)
-                self.p.resetDebugVisualizerCamera(2.6, 160, -50, [0.0, -0.2, -0.33])
+                self.p.resetDebugVisualizerCamera(2.6, 150, -60, [0.0, -0.2, 0.5])
         else:
             self.p.connect(self.p.DIRECT)
 

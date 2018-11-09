@@ -29,6 +29,57 @@ def _show_texture_image(pixels, width, height):
     img.show()
 
 
+class BarycentricInterpolator:
+    """
+    Each f line in the obj will be initialized as a barycentric interpolator
+    Algorithm taken from:
+    https://gamedev.stackexchange.com/questions/23743/whats-the-most-efficient-way-to-find-barycentric-coordinates
+    """
+
+    def __init__(self, a, b, c):
+        self._a = a
+        self._b = b
+        self._c = c
+        self._v0 = np.subtract(b, a)
+        self._v1 = np.subtract(c, a)
+        self._d00 = np.dot(self._v0, self._v0)
+        self._d01 = np.dot(self._v0, self._v1)
+        self._d11 = np.dot(self._v1, self._v1)
+        self._inv_denom = 1.0 / (self._d00 * self._d11 - self._d01 * self._d01)
+
+        self._uva = None
+        self._uvb = None
+        self._uvc = None
+
+    def _get_bary_coordinate(self, point):
+        v2 = np.subtract(point, self._a)
+        d20 = np.dot(v2, self._v0)
+        d21 = np.dot(v2, self._v1)
+        v = (self._d11 * d20 - self._d01 * d21) * self._inv_denom
+        w = (self._d00 * d21 - self._d01 * d20) * self._inv_denom
+        u = 1.0 - v - w
+        return u, v, w
+
+    def is_inside_triangle(self, point):
+        bary_a, bary_b, bary_c = self._get_bary_coordinate(point)
+        return -0.1 < bary_a < 1.1 and -0.1 < bary_b < 1.1 and -0.1 < bary_c < 1.1
+
+    def set_uv_coordinate(self, uva, uvb, uvc):
+        self._uva = uva
+        self._uvb = uvb
+        self._uvc = uvc
+
+    def get_texel(self, point):
+        bary_a, bary_b, bary_c = self._get_bary_coordinate(point)
+        # For efficiency reason, do not check uvs are set or not
+        return list(np.dot(bary_a, self._uva) + np.dot(bary_b, self._uvb) + np.dot(bary_c, self._uvc))
+
+    def add_debug_info(self):
+        addUserDebugLine(self._a, self._b, [1, 0, 0])
+        addUserDebugLine(self._b, self._c, [1, 0, 0])
+        addUserDebugLine(self._c, self._a, [1, 0, 0])
+
+
 class URDF:
     """
     Store the loaded urdf cache and its correspondent change texture parameters
@@ -44,19 +95,37 @@ class URDF:
 
     def paint(self, points, color):
         color = [np.uint8(i * 255) for i in color]
-        nearest_neighbors = self.vertices_kd_tree.query(points, k=3)
-        related_indexes = nearest_neighbors[1]
+        nearest_vertices = self.vertices_kd_tree.query(points, k=5)[1]
+        debug = []
+        not_found = []
+        for i, point in enumerate(points):
+            baries = [k for j in range(len(nearest_vertices[i])) for k in self.uv_map[nearest_vertices[i][j]]]
+            found = False
+            for bary in baries:
+                if bary.is_inside_triangle(point):
+                    u, v = bary.get_texel(point)
+                    # pixels_coord = uv_coord * [width, height], normal round up, without Bilinear filtering
+                    # some uv coordinate are not in range [0, 1], therefore mode the calculated value
+                    i = int(round(self.texture_width * u)) % self.texture_width
+                    j = int(round(self.texture_height * v)) % self.texture_height
+                    texel = (i + j * self.texture_width) * 3
+                    debug.append(texel)
+                    self.texture_pixels[texel] = color[0]
+                    self.texture_pixels[texel + 1] = color[1]
+                    self.texture_pixels[texel + 2] = color[2]
+                    found = True
+                    # break
+            if not found:
+                _show_flange_debug_line([point])
+                for bary in baries:
+                    bary.is_inside_triangle(point)
+                    bary.add_debug_info()
+                not_found.append(point)
 
-        extracted_indexes = list(set([j for i in related_indexes for j in i]))
-        for index in extracted_indexes:
-            for pixel in self.uv_map[index]:
-                self.texture_pixels[pixel] = color[0]
-                self.texture_pixels[pixel + 1] = color[1]
-                self.texture_pixels[pixel + 2] = color[2]
+        _show_flange_debug_line(not_found)
 
-        # # debug
         # _show_flange_debug_line([self.vertices_kd_tree.data[i] for i in extracted_indexes])
-        # _show_texture_image(self.texture_pixels, self.texture_width, self.texture_height)
+        _show_texture_image(self.texture_pixels, self.texture_width, self.texture_height)
 
         changeTexture(self.texture_id, self.texture_pixels, self. texture_width, self.texture_height)
 
@@ -145,12 +214,9 @@ def _cache_obj(urdf_obj, obj_path):
                     coordinate.append(float(v))
                 v_array.append(coordinate)
             elif content[0] == 'vt':
-                # pixels_coord = uv_coord * [width, height], normal round up, without Bilinear filtering
-                # some uv coordinate are not in range [0, 1], therefore mode the calculated value
-                i = int(round(urdf_obj.texture_width * float(content[1]))) % urdf_obj.texture_width
-                j = int(round(urdf_obj.texture_height * (1 - float(content[2])))) % urdf_obj.texture_height
-                # linear position of the pixel values, 0 -> R, +1 -> G, +2 -> B
-                vt_array.append((i + j * urdf_obj.texture_width) * 3)
+                vt_array.append([float(content[1]), 1 - float(content[2])])
+
+        global_v_array = _get_global_coordinate(urdf_obj.urdf_id, v_array)
         f.seek(0)
         uv_map = {}
         for line in f:
@@ -158,13 +224,16 @@ def _cache_obj(urdf_obj, obj_path):
             if not len(content):
                 continue
             if content[0] == 'f':
-                for item in content[1:]:
-                    temp = item.split('/')
-                    v_index, vt_index = int(temp[0]) - 1, int(temp[1]) - 1
+                triangle_point_indexes = [int(i.split('/')[0]) - 1 for i in content[1:]]
+                v_coordinates = [global_v_array[i] for i in triangle_point_indexes]
+                uv_coordinates = [vt_array[int(i.split('/')[1]) - 1] for i in content[1:]]
+                bary_interpolator = BarycentricInterpolator(*v_coordinates)
+                bary_interpolator.set_uv_coordinate(*uv_coordinates)
+                for v_index in triangle_point_indexes:
                     if v_index not in uv_map:
                         uv_map[v_index] = []
-                    uv_map[v_index].append(vt_array[vt_index])
-        global_v_array = _get_global_coordinate(urdf_obj.urdf_id, v_array)
+                    uv_map[v_index].append(bary_interpolator)
+
         urdf_obj.vertices_kd_tree = cKDTree(global_v_array)
         urdf_obj.uv_map = uv_map
 
