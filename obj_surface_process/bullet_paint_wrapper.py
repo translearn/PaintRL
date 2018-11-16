@@ -51,6 +51,8 @@ class BarycentricInterpolator:
         self._uvb = None
         self._uvc = None
 
+        self._vn = None
+
     def _get_bary_coordinate(self, point):
         v2 = np.subtract(point, self._a)
         d20 = np.dot(v2, self._v0)
@@ -60,9 +62,13 @@ class BarycentricInterpolator:
         u = 1.0 - v - w
         return u, v, w
 
+    def get_min_uvw(self, point):
+        bary_a, bary_b, bary_c = self._get_bary_coordinate(point)
+        return min(bary_a, bary_b, bary_c)
+
     def is_inside_triangle(self, point):
         bary_a, bary_b, bary_c = self._get_bary_coordinate(point)
-        return -0.1 < bary_a < 1.1 and -0.1 < bary_b < 1.1 and -0.1 < bary_c < 1.1
+        return 0 < bary_a < 1 and 0 < bary_b < 1 and 0 < bary_c < 1
 
     def set_uv_coordinate(self, uva, uvb, uvc):
         self._uva = uva
@@ -75,6 +81,7 @@ class BarycentricInterpolator:
         return list(np.dot(bary_a, self._uva) + np.dot(bary_b, self._uvb) + np.dot(bary_c, self._uvc))
 
     def add_debug_info(self):
+        # draw the triangle for debug
         addUserDebugLine(self._a, self._b, [1, 0, 0])
         addUserDebugLine(self._b, self._c, [1, 0, 0])
         addUserDebugLine(self._c, self._a, [1, 0, 0])
@@ -93,39 +100,43 @@ class URDF:
         self.texture_height = None
         self.texture_pixels = None
 
+    def _change_texel_color(self, color, bary, point):
+        u, v = bary.get_texel(point)
+        # pixels_coord = uv_coord * [width, height], normal round up, without Bilinear filtering
+        # some uv coordinate are not in range [0, 1], therefore mode the calculated value
+        i = int(round(self.texture_width * u)) % self.texture_width
+        j = int(round(self.texture_height * v)) % self.texture_height
+        texel = (i + j * self.texture_width) * 3
+        self.texture_pixels[texel] = color[0]
+        self.texture_pixels[texel + 1] = color[1]
+        self.texture_pixels[texel + 2] = color[2]
+
     def paint(self, points, color):
         color = [np.uint8(i * 255) for i in color]
-        nearest_vertices = self.vertices_kd_tree.query(points, k=5)[1]
-        debug = []
-        not_found = []
+        nearest_vertices = self.vertices_kd_tree.query(points, k=1)[1]
+        # not_found = []
         for i, point in enumerate(points):
-            baries = [k for j in range(len(nearest_vertices[i])) for k in self.uv_map[nearest_vertices[i][j]]]
-            found = False
-            for bary in baries:
+            color_changed = False
+            closest_uvw = -1
+            closest_bary = self.uv_map[nearest_vertices[i]][0]
+            for bary in self.uv_map[nearest_vertices[i]]:
                 if bary.is_inside_triangle(point):
-                    u, v = bary.get_texel(point)
-                    # pixels_coord = uv_coord * [width, height], normal round up, without Bilinear filtering
-                    # some uv coordinate are not in range [0, 1], therefore mode the calculated value
-                    i = int(round(self.texture_width * u)) % self.texture_width
-                    j = int(round(self.texture_height * v)) % self.texture_height
-                    texel = (i + j * self.texture_width) * 3
-                    debug.append(texel)
-                    self.texture_pixels[texel] = color[0]
-                    self.texture_pixels[texel + 1] = color[1]
-                    self.texture_pixels[texel + 2] = color[2]
-                    found = True
-                    # break
-            if not found:
-                _show_flange_debug_line([point])
-                for bary in baries:
-                    bary.is_inside_triangle(point)
-                    bary.add_debug_info()
-                not_found.append(point)
+                    self._change_texel_color(color, bary, point)
+                    color_changed = True
+                    break
+                else:
+                    min_uvw = bary.get_min_uvw(point)
+                    if min_uvw >= closest_uvw:
+                        closest_uvw = min_uvw
+                        closest_bary = bary
+            if not color_changed:
+                self._change_texel_color(color, closest_bary, point)
+                # for bary in self.uv_map[nearest_vertices[i]]:
+                #     bary.add_debug_info()
+                # not_found.append(point)
 
-        _show_flange_debug_line(not_found)
-
-        # _show_flange_debug_line([self.vertices_kd_tree.data[i] for i in extracted_indexes])
-        _show_texture_image(self.texture_pixels, self.texture_width, self.texture_height)
+        # _show_flange_debug_line(not_found)
+        # _show_texture_image(self.texture_pixels, self.texture_width, self.texture_height)
 
         changeTexture(self.texture_id, self.texture_pixels, self. texture_width, self.texture_height)
 
