@@ -4,6 +4,7 @@ please make sure the mesh obj files are processed by the process_script.py
 the changeTexture function will be called implicitly as long as the new method paint is called
 """
 import os
+import enum
 import pybullet as p
 from pybullet import *
 import pybullet_data
@@ -14,13 +15,15 @@ from scipy.spatial import cKDTree
 
 BULLET_LIB_PATH = pybullet_data.getDataPath()
 _urdf_cache = {}
+# Primitive way, compare with a fixed vector to get the side of a part, here directly use x-axis.
+FRONT_FACE = (1, 0, 0)
 
 
 def _show_flange_debug_line(points):
     # only for debug purpose, robot pose may change afterwards
     robot_pose = getLinkState(2, 6)[0]
     for point in points:
-        addUserDebugLine(robot_pose, point, [0, 1, 0])
+        addUserDebugLine(robot_pose, point, (0, 1, 0))
 
 
 def _show_texture_image(pixels, width, height):
@@ -29,10 +32,18 @@ def _show_texture_image(pixels, width, height):
     img.show()
 
 
+class Side(enum.Enum):
+    """
+    First define only two sides for each part
+    """
+    front = 1
+    back = 2
+
+
 class BarycentricInterpolator:
     """
     Each f line in the obj will be initialized as a barycentric interpolator
-    Algorithm taken from:
+    The interpolation algorithm is taken from:
     https://gamedev.stackexchange.com/questions/23743/whats-the-most-efficient-way-to-find-barycentric-coordinates
     """
 
@@ -52,6 +63,7 @@ class BarycentricInterpolator:
         self._uvc = None
 
         self._vn = None
+        self._side = None
 
     def _get_bary_coordinate(self, point):
         v2 = np.subtract(point, self._a)
@@ -75,6 +87,13 @@ class BarycentricInterpolator:
         self._uvb = uvb
         self._uvc = uvc
 
+    def set_face_normal(self, vn, side):
+        self._vn = vn
+        self._side = side
+
+    def is_in_same_side(self, side):
+        return self._side == side
+
     def get_texel(self, point):
         bary_a, bary_b, bary_c = self._get_bary_coordinate(point)
         # For efficiency reason, do not check uvs are set or not
@@ -82,14 +101,23 @@ class BarycentricInterpolator:
 
     def add_debug_info(self):
         # draw the triangle for debug
-        addUserDebugLine(self._a, self._b, [1, 0, 0])
-        addUserDebugLine(self._b, self._c, [1, 0, 0])
-        addUserDebugLine(self._c, self._a, [1, 0, 0])
+        color = (1, 0, 0)
+        addUserDebugLine(self._a, self._b, color)
+        addUserDebugLine(self._b, self._c, color)
+        addUserDebugLine(self._c, self._a, color)
+
+    def draw_face_normal(self):
+        center_point = []
+        for a, b, c in zip(self._a, self._b, self._c):
+            center_point.append((a + b + c) / 3)
+        target_point = [a + b for a, b in zip(center_point, self._vn)]
+        addUserDebugLine(center_point, target_point, (1, 0, 0) if self._side == Side.front else (0, 1, 0))
 
 
-class URDF:
+class PART:
     """
-    Store the loaded urdf cache and its correspondent change texture parameters
+    Store the loaded urdf cache and its correspondent change texture parameters,
+    extract the pixels on the part to be painted.
     """
     def __init__(self, urdf_id=-1):
         self.urdf_id = urdf_id
@@ -111,29 +139,29 @@ class URDF:
         self.texture_pixels[texel + 1] = color[1]
         self.texture_pixels[texel + 2] = color[2]
 
-    def paint(self, points, color):
+    def paint(self, points, color, orientation):
         color = [np.uint8(i * 255) for i in color]
         nearest_vertices = self.vertices_kd_tree.query(points, k=1)[1]
-        # not_found = []
+        current_side = _get_side([-i for i in orientation])
         for i, point in enumerate(points):
             color_changed = False
             closest_uvw = -1
             closest_bary = self.uv_map[nearest_vertices[i]][0]
             for bary in self.uv_map[nearest_vertices[i]]:
-                if bary.is_inside_triangle(point):
+                if bary.is_inside_triangle(point) and bary.is_in_same_side(current_side):
                     self._change_texel_color(color, bary, point)
                     color_changed = True
                     break
                 else:
                     min_uvw = bary.get_min_uvw(point)
-                    if min_uvw >= closest_uvw:
+                    if min_uvw >= closest_uvw and bary.is_in_same_side(current_side):
                         closest_uvw = min_uvw
                         closest_bary = bary
-            if not color_changed:
+            if (not color_changed) and closest_bary.is_in_same_side(current_side):
                 self._change_texel_color(color, closest_bary, point)
                 # for bary in self.uv_map[nearest_vertices[i]]:
                 #     bary.add_debug_info()
-                # not_found.append(point)
+                #     bary.draw_face_normal()
 
         # _show_flange_debug_line(not_found)
         # _show_texture_image(self.texture_pixels, self.texture_width, self.texture_height)
@@ -205,45 +233,78 @@ def _get_global_coordinate(urdf_id, points):
     base_pose, base_orn = getBasePositionAndOrientation(urdf_id)
     local_points = []
     for point in points:
-        pose, _ = multiplyTransforms(base_pose, base_orn, point, [0, 0, 0, 1])
+        pose, _ = multiplyTransforms(base_pose, base_orn, point, (0, 0, 0, 1))
         local_points.append(pose)
     return local_points
 
 
-def _cache_obj(urdf_obj, obj_path):
-    # assume strictly that v comes first, then vt, then f.
+def _get_coordinate_from_line(content, v_array):
+    coordinate = []
+    for v in content[1:]:
+        coordinate.append(float(v))
+    v_array.append(coordinate)
+
+
+def _retrieve_obj_elements(file):
+    file.seek(0)
     v_array = []
     vt_array = []
+    vn_array = []
+    for line in file:
+        content = line.split()
+        if not len(content):
+            continue
+        if content[0] == 'v':
+            _get_coordinate_from_line(content, v_array)
+        elif content[0] == 'vt':
+            vt_array.append([float(content[1]), 1 - float(content[2])])
+        elif content[0] == 'vn':
+            _get_coordinate_from_line(content, vn_array)
+    return v_array, vn_array, vt_array
+
+
+def _get_side(v):
+    # Take care of the possible rotation made in loading the part!
+    # assume unified vector
+    angle = np.arccos(np.dot(FRONT_FACE, v))
+    # front
+    if - np.pi / 2 <= angle <= np.pi / 2:
+        return Side.front
+    # back
+    else:
+        return Side.back
+
+
+def _get_uv_map(file, v_array, vt_array, vn_array):
+    file.seek(0)
+    uv_map = {}
+    for line in file:
+        content = line.split()
+        if not len(content):
+            continue
+        if content[0] == 'f':
+            triangle_point_indexes = [int(i.split('/')[0]) - 1 for i in content[1:]]
+            v_coordinates = [v_array[i] for i in triangle_point_indexes]
+            uv_coordinates = [vt_array[int(i.split('/')[1]) - 1] for i in content[1:]]
+            bary_interpolator = BarycentricInterpolator(*v_coordinates)
+            bary_interpolator.set_uv_coordinate(*uv_coordinates)
+            vn_index = [int(i.split('/')[2]) - 1 for i in content[1:] if len(i.split('/')) >= 3]
+            if vn_index and vn_index[0] == vn_index[1] == vn_index[2]:
+                vn_normal = vn_array[vn_index[0]]
+                bary_interpolator.set_face_normal(vn_normal, _get_side(vn_normal))
+            for v_index in triangle_point_indexes:
+                if v_index not in uv_map:
+                    uv_map[v_index] = []
+                uv_map[v_index].append(bary_interpolator)
+    return uv_map
+
+
+def _cache_obj(urdf_obj, obj_path):
     with open(obj_path, mode='r') as f:
-        for line in f:
-            content = line.split()
-            if not len(content):
-                continue
-            if content[0] == 'v':
-                coordinate = []
-                for v in content[1:]:
-                    coordinate.append(float(v))
-                v_array.append(coordinate)
-            elif content[0] == 'vt':
-                vt_array.append([float(content[1]), 1 - float(content[2])])
+        v_array, vn_array, vt_array = _retrieve_obj_elements(f)
 
         global_v_array = _get_global_coordinate(urdf_obj.urdf_id, v_array)
-        f.seek(0)
-        uv_map = {}
-        for line in f:
-            content = line.split()
-            if not len(content):
-                continue
-            if content[0] == 'f':
-                triangle_point_indexes = [int(i.split('/')[0]) - 1 for i in content[1:]]
-                v_coordinates = [global_v_array[i] for i in triangle_point_indexes]
-                uv_coordinates = [vt_array[int(i.split('/')[1]) - 1] for i in content[1:]]
-                bary_interpolator = BarycentricInterpolator(*v_coordinates)
-                bary_interpolator.set_uv_coordinate(*uv_coordinates)
-                for v_index in triangle_point_indexes:
-                    if v_index not in uv_map:
-                        uv_map[v_index] = []
-                    uv_map[v_index].append(bary_interpolator)
+        uv_map = _get_uv_map(f, global_v_array, vt_array, vn_array)
 
         urdf_obj.vertices_kd_tree = cKDTree(global_v_array)
         urdf_obj.uv_map = uv_map
@@ -256,9 +317,9 @@ def _load_urdf_wrapper(*args, **kwargs):
         obj_file_path, texture_file_path = _retrieve_related_file_path(path)
         # Texture file exists, prepare for texture manipulation
         if texture_file_path:
-            urdf = URDF(u_id)
-            _urdf_cache[u_id] = urdf
-            _cache_texture(urdf, obj_file_path, texture_file_path)
+            part = PART(u_id)
+            _urdf_cache[u_id] = part
+            _cache_texture(part, obj_file_path, texture_file_path)
         return u_id
     except error as e:
         print(str(e))
@@ -268,12 +329,13 @@ def _load_urdf_wrapper(*args, **kwargs):
 loadURDF = _load_urdf_wrapper
 
 
-def paint(urdf_id, points, color):
+def paint(urdf_id, points, color, orientation):
     """
     paint a specific part
     :param urdf_id: integer ID of the model returned by bullet
     :param points: intersection points in global coordinate
     :param color: list [r, g, b], each in range [0, 1]
+    :param orientation: orientation of the paint gun, normalized vector
     :return:
     """
-    _urdf_cache[urdf_id].paint(points, color)
+    _urdf_cache[urdf_id].paint(points, color, orientation)

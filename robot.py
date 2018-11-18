@@ -73,7 +73,7 @@ if __name__ == '__main__':
     cid = p.connect(p.SHARED_MEMORY)
     if cid < 0:
         p.connect(p.GUI)
-        p.resetDebugVisualizerCamera(2.6, 180, -41, [0.0, -0.2, -0.33])
+        p.resetDebugVisualizerCamera(2.6, 180, -41, (0.0, -0.2, -0.33))
     else:
         p.connect(p.DIRECT)
 

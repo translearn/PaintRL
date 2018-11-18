@@ -1,6 +1,7 @@
 import os
 import math
 import obj_surface_process.bullet_paint_wrapper as p
+import numpy as np
 import gym
 from gym.utils import seeding
 from robot import Robot
@@ -32,7 +33,7 @@ class RobotGymEnv(gym.Env):
             cid = self.p.connect(self.p.SHARED_MEMORY)
             if cid < 0:
                 self.p.connect(self.p.GUI)
-                self.p.resetDebugVisualizerCamera(2.6, 150, -60, [0.0, -0.2, 0.5])
+                self.p.resetDebugVisualizerCamera(2.6, 150, -60, (0.0, -0.2, 0.5))
         else:
             self.p.connect(self.p.DIRECT)
 
@@ -41,13 +42,13 @@ class RobotGymEnv(gym.Env):
             self.p.setPhysicsEngineParameter(numSolverIterations=150)
 
     def _load_environment(self):
-        self.p.loadURDF('plane.urdf', [0, 0, -0.93], useFixedBase=True)
+        self.p.loadURDF('plane.urdf', (0, 0, -0.93), useFixedBase=True)
         self._part_id = self.p.loadURDF(os.path.join(self._urdf_root, 'urdf', 'painting', 'door.urdf'),
-                                        [-0.5, -0.5, 0.5], useFixedBase=True)
+                                        (-0.5, -0.5, 0.5), useFixedBase=True)
         # robot_urdf_path = os.path.join(self._urdf_root, 'urdf', 'franka_description', 'robots', 'panda_arm.urdf')
         # self._robot = Franka(robot_urdf_path)
-        self.robot = Robot('kuka_iiwa/model_free_base.urdf', pos=[0.2, -0.2, 0],
-                           orn=p.getQuaternionFromEuler([0, 0, math.pi*3/2]))
+        self.robot = Robot('kuka_iiwa/model_free_base.urdf', pos=(0.2, -0.2, 0),
+                           orn=p.getQuaternionFromEuler((0, 0, math.pi*3/2)))
         self.p.setGravity(0, 0, -10)
 
     def _termination(self):
@@ -78,20 +79,28 @@ class RobotGymEnv(gym.Env):
                     ray_origin.append(end_effector_pose)
                     dst_ori = [i, j, target_ray_plane]
                     dst_target, _ = self.p.multiplyTransforms(end_effector_pose, end_effector_orn, dst_ori,
-                                                              [0, 0, 0, 1])
+                                                              (0, 0, 0, 1))
                     ray_dst.append(dst_target)
                     if show_debug_lines:
-                        p.addUserDebugLine(end_effector_pose, dst_target, [0, 1, 0])
+                        p.addUserDebugLine(end_effector_pose, dst_target, (0, 1, 0))
                 j += resolution
             i += resolution
             j = -radius
         return ray_origin, ray_dst
 
+    def _get_tcp_orn_norm(self, end_effector_pose, end_effector_orn):
+        p_along_tcp, _ = self.p.multiplyTransforms(end_effector_pose, end_effector_orn, (0, 0, 1), (0, 0, 0, 1))
+        vector = [b - a for a, b in zip(end_effector_pose, p_along_tcp)]
+        norm = np.linalg.norm(vector, ord=1)
+        norm_vector = [v / norm for v in vector]
+        return norm_vector
+
     def _paint(self, end_effector_pose, end_effector_orn, show_debug_lines=False):
         beams = self._generate_paint_beams(end_effector_pose, end_effector_orn, show_debug_lines)
         results = self.p.rayTestBatch(*beams)
         points = [item[3] for item in results]
-        self.p.paint(self._part_id, points, [1, 0, 0])
+        orn_norm = self._get_tcp_orn_norm(end_effector_pose, end_effector_orn)
+        self.p.paint(self._part_id, points, (1, 0, 0), orn_norm)
 
     def step(self, action):
         # Make sure that the step should be small enough, otherwise the paint won't be continuous
@@ -128,8 +137,8 @@ if __name__ == '__main__':
     # f = Franka(franka_urdf_path)
     # print(franka_urdf_path)
     env = RobotGymEnv(os.path.dirname(os.path.realpath(__file__)), renders=True)
-    pos = [0.0, 0.0, 0.6]
-    orn = [0, -1, 0, 1]
+    pos = (0.0, 0.0, 0.6)
+    orn = (0, -1, 0, 1)
     act = p.calculateInverseKinematics(env.robot.robot_id, env.robot._end_effector_idx, pos, orn)
     # action = [0, 0, 0, 0.5*math.pi, 0, -math.pi*0.5*0.66, 0]
     for joint in range(7):
