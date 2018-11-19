@@ -17,6 +17,8 @@ BULLET_LIB_PATH = pybullet_data.getDataPath()
 _urdf_cache = {}
 # Primitive way, compare with a fixed vector to get the side of a part, here directly use x-axis.
 FRONT_FACE = (1, 0, 0)
+# Finished color, used for preprocessing and calculate rewards
+TARGET_COLOR = (1, 1, 1)
 
 
 def _show_flange_debug_line(points):
@@ -32,12 +34,24 @@ def _show_texture_image(pixels, width, height):
     img.show()
 
 
+def _get_color(color):
+    return [np.uint8(i * 255) for i in color]
+
+
 class Side(enum.Enum):
     """
     First define only two sides for each part
     """
     front = 1
     back = 2
+
+
+def _get_pixel_coordinate(u, v, width, height):
+    # pixels_coord = uv_coord * [width, height], normal round up, without Bilinear filtering
+    # some uv coordinate are not in range [0, 1]
+    i = min(int(round(width * u)), width - 1)
+    j = min(int(round(height * v)), height - 1)
+    return i, j
 
 
 class BarycentricInterpolator:
@@ -92,14 +106,17 @@ class BarycentricInterpolator:
         uva = _get_pixel_coordinate(*self._uva, width, height)
         uvb = _get_pixel_coordinate(*self._uvb, width, height)
         uvc = _get_pixel_coordinate(*self._uvc, width, height)
+        pixels.append(uva)
+        pixels.append(uvb)
+        pixels.append(uvc)
         # Here make a 2D triangle, use barycentric coordinate to judge if pixels inside the triangle
-        uv_bary = BarycentricInterpolator(uva, uvb, uvc)
+        uv_bary = BarycentricInterpolator(self._uva, self._uvb, self._uvc)
         x_min, x_max = min(uva[0], uvb[0], uvc[0]), max(uva[0], uvb[0], uvc[0])
         y_min, y_max = min(uva[1], uvb[1], uvc[1]), max(uva[1], uvb[1], uvc[1])
-        for x in range(x_min, x_max + 1):
-            for y in range(y_min, y_max + 1):
-                if uv_bary.is_inside_triangle((x, y)):
-                    pixels.append((x, y))
+        for u in range(x_min, x_max + 1):
+            for v in range(y_min, y_max + 1):
+                if uv_bary.is_inside_triangle((u / width, v / height)):
+                    pixels.append((u, v))
         return pixels
 
     def set_face_normal(self, vn, side):
@@ -112,10 +129,11 @@ class BarycentricInterpolator:
     def get_side(self):
         return self._side
 
-    def get_texel(self, point):
+    def get_texel(self, point, width, height):
         bary_a, bary_b, bary_c = self._get_bary_coordinate(point)
         # For efficiency reason, do not check uvs are set or not
-        return list(np.dot(bary_a, self._uva) + np.dot(bary_b, self._uvb) + np.dot(bary_c, self._uvc))
+        u, v = list(np.dot(bary_a, self._uva) + np.dot(bary_b, self._uvb) + np.dot(bary_c, self._uvc))
+        return _get_pixel_coordinate(u, v, width, height)
 
     def add_debug_info(self):
         # draw the triangle for debug
@@ -130,14 +148,6 @@ class BarycentricInterpolator:
             center_point.append((a + b + c) / 3)
         target_point = [a + b for a, b in zip(center_point, self._vn)]
         addUserDebugLine(center_point, target_point, (1, 0, 0) if self._side == Side.front else (0, 1, 0))
-
-
-def _get_pixel_coordinate(u, v, width, height):
-    # pixels_coord = uv_coord * [width, height], normal round up, without Bilinear filtering
-    # some uv coordinate are not in range [0, 1], therefore mode the calculated value
-    i = int(round(width * u)) % width
-    j = int(round(height * v)) % height
-    return i, j
 
 
 class PART:
@@ -155,19 +165,18 @@ class PART:
         self.texture_pixels = None
         self.profile = {}
 
-    def _change_texel_color(self, color, bary, point):
-        u, v = bary.get_texel(point)
-        i, j = _get_pixel_coordinate(u, v, self.texture_width, self.texture_height)
-        self._manipulate_extracted_pixel(color, i, j)
-
-    def _manipulate_extracted_pixel(self, color, i, j):
+    def _change_pixel(self, color, i, j):
         texel = (i + j * self.texture_width) * 3
         self.texture_pixels[texel] = color[0]
         self.texture_pixels[texel + 1] = color[1]
         self.texture_pixels[texel + 2] = color[2]
 
+    def _change_texel_color(self, color, bary, point):
+        i, j = bary.get_texel(point, self.texture_width, self.texture_height)
+        self._change_pixel(color, i, j)
+
     def paint(self, points, color, orientation):
-        color = [np.uint8(i * 255) for i in color]
+        color = _get_color(color)
         nearest_vertices = self.vertices_kd_tree.query(points, k=1)[1]
         current_side = _get_side([-i for i in orientation])
         for i, point in enumerate(points):
@@ -192,10 +201,9 @@ class PART:
 
         # _show_flange_debug_line(not_found)
         # _show_texture_image(self.texture_pixels, self.texture_width, self.texture_height)
-
         changeTexture(self.texture_id, self.texture_pixels, self. texture_width, self.texture_height)
 
-    def preprocess_part(self):
+    def preprocess(self):
         for _, p_map in self.uv_map.items():
             for bary in p_map:
                 if bary.get_side():
@@ -204,14 +212,17 @@ class PART:
                     if side not in self.profile:
                         self.profile[side] = []
                     self.profile[side].extend(pixels)
-        for side in self.profile:
-            self.profile[side] = list(set(self.profile[side]))
         if self.profile:
-            color = [np.uint8(i * 255) for i in (1, 1, 1)]
-            for point in self.profile[Side.front]:
-                self._manipulate_extracted_pixel(color, *point)
-            _show_texture_image(self.texture_pixels, self.texture_width, self.texture_height)
-        pass
+            for side in self.profile:
+                self.profile[side] = list(set(self.profile[side]))
+            # preprocessing all irrelevant pixels
+            target_pixels = [(i, j) for i in range(self.texture_width) for j in range(self.texture_height)]
+            for side in self.profile:
+                target_pixels = [i for i in target_pixels if i not in self.profile[side]]
+            color = _get_color(TARGET_COLOR)
+            for point in target_pixels:
+                self._change_pixel(color, *point)
+            # _show_texture_image(self.texture_pixels, self.texture_width, self.texture_height)
 
 
 def _get_abs_file_path(root_path, path):
@@ -348,7 +359,7 @@ def _cache_obj(urdf_obj, obj_path):
 
         urdf_obj.vertices_kd_tree = cKDTree(global_v_array)
         urdf_obj.uv_map = uv_map
-        urdf_obj.preprocess_part()
+        urdf_obj.preprocess()
 
 
 def _load_urdf_wrapper(*args, **kwargs):
