@@ -17,8 +17,8 @@ BULLET_LIB_PATH = pybullet_data.getDataPath()
 _urdf_cache = {}
 # Primitive way, compare with a fixed vector to get the side of a part, here directly use x-axis.
 FRONT_FACE = (1, 0, 0)
-# Finished color, used for preprocessing and calculate rewards
-TARGET_COLOR = (1, 1, 1)
+# Color to mark irrelevant pixels, used for preprocessing and calculate rewards
+IRRELEVANT_COLOR = (1, 1, 1)
 
 
 def _show_flange_debug_line(points):
@@ -28,10 +28,10 @@ def _show_flange_debug_line(points):
         addUserDebugLine(robot_pose, point, (0, 1, 0))
 
 
-def _show_texture_image(pixels, width, height):
+def _get_texture_image(pixels, width, height):
     pixel_array = np.reshape(np.asarray(pixels), (width, height, 3))
     img = Image.fromarray(pixel_array, 'RGB')
-    img.show()
+    return img
 
 
 def _get_color(color):
@@ -142,11 +142,15 @@ class BarycentricInterpolator:
         addUserDebugLine(self._b, self._c, color)
         addUserDebugLine(self._c, self._a, color)
 
+    def get_point_along_normal(self, point, length):
+        proportional_vn = [i * length for i in self._vn]
+        return [a + b for a, b in zip(point, proportional_vn)]
+
     def draw_face_normal(self):
         center_point = []
         for a, b, c in zip(self._a, self._b, self._c):
             center_point.append((a + b + c) / 3)
-        target_point = [a + b for a, b in zip(center_point, self._vn)]
+        target_point = self.get_point_along_normal(center_point, 0.25)
         addUserDebugLine(center_point, target_point, (1, 0, 0) if self._side == Side.front else (0, 1, 0))
 
 
@@ -163,10 +167,14 @@ class PART:
         self.texture_width = None
         self.texture_height = None
         self.texture_pixels = None
+        self._start_points = {}
         self.profile = {}
 
+    def _get_texel(self, i, j):
+        return (i + j * self.texture_width) * 3
+
     def _change_pixel(self, color, i, j):
-        texel = (i + j * self.texture_width) * 3
+        texel = self._get_texel(i, j)
         self.texture_pixels[texel] = color[0]
         self.texture_pixels[texel + 1] = color[1]
         self.texture_pixels[texel + 2] = color[2]
@@ -175,35 +183,45 @@ class PART:
         i, j = bary.get_texel(point, self.texture_width, self.texture_height)
         self._change_pixel(color, i, j)
 
+    def _get_closest_bary(self, point, nearest_vertex, side):
+        closest_uvw = -1
+        closest_bary = None
+        for bary in self.uv_map[nearest_vertex]:
+            if not bary.is_in_same_side(side):
+                continue
+            if bary.is_inside_triangle(point):
+                return bary
+            else:
+                if not closest_bary:
+                    closest_bary = bary
+                min_uvw = bary.get_min_uvw(point)
+                if min_uvw >= closest_uvw:
+                    closest_uvw = min_uvw
+                    closest_bary = bary
+        return closest_bary
+
     def paint(self, points, color, orientation):
         color = _get_color(color)
         nearest_vertices = self.vertices_kd_tree.query(points, k=1)[1]
         current_side = _get_side([-i for i in orientation])
         for i, point in enumerate(points):
-            color_changed = False
-            closest_uvw = -1
-            closest_bary = self.uv_map[nearest_vertices[i]][0]
-            for bary in self.uv_map[nearest_vertices[i]]:
-                if bary.is_inside_triangle(point) and bary.is_in_same_side(current_side):
-                    self._change_texel_color(color, bary, point)
-                    color_changed = True
-                    break
-                else:
-                    min_uvw = bary.get_min_uvw(point)
-                    if min_uvw >= closest_uvw and bary.is_in_same_side(current_side):
-                        closest_uvw = min_uvw
-                        closest_bary = bary
-            if (not color_changed) and closest_bary.is_in_same_side(current_side):
-                self._change_texel_color(color, closest_bary, point)
-                # for bary in self.uv_map[nearest_vertices[i]]:
-                #     bary.add_debug_info()
-                #     bary.draw_face_normal()
+            bary = self._get_closest_bary(point, nearest_vertices[i], current_side)
+            if bary:
+                self._change_texel_color(color, bary, point)
+                for bary in self.uv_map[nearest_vertices[i]]:
+                    bary.add_debug_info()
+                    bary.draw_face_normal()
 
         # _show_flange_debug_line(not_found)
-        # _show_texture_image(self.texture_pixels, self.texture_width, self.texture_height)
+        # _get_texture_image(self.texture_pixels, self.texture_width, self.texture_height).show()
         changeTexture(self.texture_id, self.texture_pixels, self. texture_width, self.texture_height)
 
     def preprocess(self):
+        """
+        Store relevant pixels according to its side of the part into self.profile
+        Mark irrelevant pixels to IRRELEVANT_COLOR
+        :return:
+        """
         for _, p_map in self.uv_map.items():
             for bary in p_map:
                 if bary.get_side():
@@ -219,10 +237,40 @@ class PART:
             target_pixels = [(i, j) for i in range(self.texture_width) for j in range(self.texture_height)]
             for side in self.profile:
                 target_pixels = [i for i in target_pixels if i not in self.profile[side]]
-            color = _get_color(TARGET_COLOR)
+            color = _get_color(IRRELEVANT_COLOR)
             for point in target_pixels:
                 self._change_pixel(color, *point)
-            # _show_texture_image(self.texture_pixels, self.texture_width, self.texture_height)
+            # _get_texture_image(self.texture_pixels, self.texture_width, self.texture_height).show()
+
+    def get_job_status(self, side, color):
+        color = _get_color(color)
+        finished_counter = 0
+        for pixel in self.profile[side]:
+            texel = self._get_texel(*pixel)
+            texel_color = self.texture_pixels[texel:texel + 3]
+            if color == texel_color:
+                finished_counter += 1
+        return finished_counter
+
+    def get_job_limit(self, side):
+        return len(self.profile[side])
+
+    def get_texture_image(self):
+        return _get_texture_image(self.texture_pixels, self.texture_width, self.texture_height)
+
+    def set_start_points(self, corner_points):
+        nearest_vertices = self.vertices_kd_tree.query(corner_points, k=1)[1]
+        for side in Side:
+            self._start_points[side] = []
+        for i, point in enumerate(corner_points):
+            for side in Side:
+                bary = self._get_closest_bary(point, nearest_vertices[i], side)
+                if bary:
+                    # lock distance is 0.1 along the normal vector
+                    self._start_points[side].append(bary.get_point_along_normal(point, 0.1))
+
+    def get_start_points(self, side):
+        return self._start_points[side]
 
 
 def _get_abs_file_path(root_path, path):
@@ -350,15 +398,34 @@ def _get_uv_map(file, v_array, vt_array, vn_array):
     return uv_map
 
 
+def _get_coordinate_range(v_array, col_num):
+    col = [i[col_num] for i in v_array]
+    return max(col) - min(col)
+
+
+def _get_corner_points(v_array):
+    ranges = [_get_coordinate_range(v_array, i) for i in range(3)]
+    target_dimensions = [i for i in range(3) if i != ranges.index(min(ranges))]
+    # remove one dimension, and follow the algorithm in line 251!
+    points = []
+    v_corner = sorted(v_array, key=lambda tup: tup[target_dimensions[0]] + tup[target_dimensions[1]])
+    points.append(v_corner[0])
+    points.append(v_corner[-1])
+    v_counter_corner = sorted(v_array, key=lambda tup: tup[target_dimensions[0]] - tup[target_dimensions[1]])
+    points.append(v_counter_corner[0])
+    points.append(v_counter_corner[-1])
+    return points
+
+
 def _cache_obj(urdf_obj, obj_path):
     with open(obj_path, mode='r') as f:
         v_array, vn_array, vt_array = _retrieve_obj_elements(f)
-
         global_v_array = _get_global_coordinate(urdf_obj.urdf_id, v_array)
         uv_map = _get_uv_map(f, global_v_array, vt_array, vn_array)
-
         urdf_obj.vertices_kd_tree = cKDTree(global_v_array)
         urdf_obj.uv_map = uv_map
+        corner_points = _get_corner_points(global_v_array)
+        urdf_obj.set_start_points(corner_points)
         urdf_obj.preprocess()
 
 
@@ -391,3 +458,19 @@ def paint(urdf_id, points, color, orientation):
     :return:
     """
     _urdf_cache[urdf_id].paint(points, color, orientation)
+
+
+def get_job_status(urdf_id, side, color):
+    return _urdf_cache[urdf_id].get_job_status(side, color)
+
+
+def get_job_limit(urdf_id, side):
+    return _urdf_cache[urdf_id].get_job_limit(side)
+
+
+def get_texture_image(urdf_id):
+    return _urdf_cache[urdf_id].get_texture_image()
+
+
+def get_start_points(urdf_id, side):
+    return _urdf_cache[urdf_id].get_start_points(side)

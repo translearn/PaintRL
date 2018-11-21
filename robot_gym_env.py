@@ -1,10 +1,17 @@
 import os
 import math
-import obj_surface_process.bullet_paint_wrapper as p
 import numpy as np
+import obj_surface_process.bullet_paint_wrapper as p
 import gym
 from gym.utils import seeding
 from robot import Robot
+
+# TODO: find out a way to figure them out automatically.
+TEXTURE_WIDTH = 240
+TEXTURE_HEIGHT = 240
+
+RENDER_HEIGHT = 720
+RENDER_WIDTH = 960
 
 
 class RobotGymEnv(gym.Env):
@@ -13,102 +20,73 @@ class RobotGymEnv(gym.Env):
         'render.modes': ['human', 'rgb_array'],
         'video.frames_per_second': 60
     }
-    reward_range = (-1e4, 1e4)
-
-    # TODO: define them correctly
-    action_space = None
-    observation_space = None
+    reward_range = (-1e5, 1e5)
+    action_space = gym.spaces.Box(np.array((-1, -1)), np.array((1, 1)))
+    observation_space = gym.spaces.Dict({
+        'pose': gym.spaces.Box(np.array((-1, -1, -1)), np.array((1, 1, 1))),
+        'image': gym.spaces.Box(0, 255, [TEXTURE_WIDTH, TEXTURE_HEIGHT, 3])
+    })
 
     def __init__(self, urdf_root, renders=False):
         self.p = p
         self.robot = None
         self._part_id = None
+        self._start_points = None
         self._renders = renders
         self._urdf_root = urdf_root
+        self._last_status = 0
+        self._paint_side = p.Side.front
+        self._paint_color = (1, 0, 0)
         self._setup_bullet_params()
         self._load_environment()
 
     def _setup_bullet_params(self):
         if self._renders:
-            cid = self.p.connect(self.p.SHARED_MEMORY)
+            cid = p.connect(p.SHARED_MEMORY)
             if cid < 0:
-                self.p.connect(self.p.GUI)
-                self.p.resetDebugVisualizerCamera(2.6, 150, -60, (0.0, -0.2, 0.5))
+                p.connect(p.GUI)
+                p.resetDebugVisualizerCamera(2.6, 150, -60, (0.0, -0.2, 0.5))
         else:
-            self.p.connect(self.p.DIRECT)
-
-            self.p.resetSimulation()
-            self.p.setTimeStep(1 / 240)
-            self.p.setPhysicsEngineParameter(numSolverIterations=150)
+            p.connect(p.DIRECT)
+            p.resetSimulation()
+            p.setTimeStep(1 / 240)
+            p.setPhysicsEngineParameter(numSolverIterations=150)
 
     def _load_environment(self):
-        self.p.loadURDF('plane.urdf', (0, 0, -0.93), useFixedBase=True)
-        self._part_id = self.p.loadURDF(os.path.join(self._urdf_root, 'urdf', 'painting', 'door.urdf'),
-                                        (-0.5, -0.5, 0.5), useFixedBase=True)
+        p.loadURDF('plane.urdf', (0, 0, -0.93), useFixedBase=True)
+        self._part_id = p.loadURDF(os.path.join(self._urdf_root, 'urdf', 'painting', 'door.urdf'),
+                                   (-0.5, -0.5, 0.5), useFixedBase=True)
         # robot_urdf_path = os.path.join(self._urdf_root, 'urdf', 'franka_description', 'robots', 'panda_arm.urdf')
         # self._robot = Franka(robot_urdf_path)
         self.robot = Robot('kuka_iiwa/model_free_base.urdf', pos=(0.2, -0.2, 0),
                            orn=p.getQuaternionFromEuler((0, 0, math.pi*3/2)))
-        self.p.setGravity(0, 0, -10)
+        self._start_points = p.get_start_points(self._part_id, p.Side.front)
+        p.setGravity(0, 0, -10)
 
     def _termination(self):
-        # FIXME: which sign can be treated as terminal signal? remember the robot path?
-        return False
+        max_possible_point = p.get_job_limit(self._part_id, self._paint_side)
+        return False if max_possible_point > self._last_status else True
 
     def _augmented_observation(self):
-        robot_status = self.robot.get_observation()
-        # TODO: camera in hand necessary?
-        camera_data = []
-        return [robot_status, camera_data]
+        observation = {}
+        pose, orn_norm = self.robot.get_observation()
+        image = p.get_texture_image(self._part_id)
+        # image.show()
+        observation['pose'] = pose
+        observation['image'] = image
+        return observation
 
     def _reward(self):
-        # TODO: define reward
-        return 1
-
-    def _generate_paint_beams(self, end_effector_pose, end_effector_orn, show_debug_lines=False):
-        radius = 0.25
-        resolution = 0.02
-        target_ray_plane = 0.5
-        ray_origin = []
-        ray_dst = []
-        i = j = -radius
-        while i <= radius:
-            while j <= radius:
-                # Euclidean distance within the radius
-                if math.sqrt(math.pow(abs(i), 2) + math.pow(abs(j), 2)) <= radius:
-                    ray_origin.append(end_effector_pose)
-                    dst_ori = [i, j, target_ray_plane]
-                    dst_target, _ = self.p.multiplyTransforms(end_effector_pose, end_effector_orn, dst_ori,
-                                                              (0, 0, 0, 1))
-                    ray_dst.append(dst_target)
-                    if show_debug_lines:
-                        p.addUserDebugLine(end_effector_pose, dst_target, (0, 1, 0))
-                j += resolution
-            i += resolution
-            j = -radius
-        return ray_origin, ray_dst
-
-    def _get_tcp_orn_norm(self, end_effector_pose, end_effector_orn):
-        p_along_tcp, _ = self.p.multiplyTransforms(end_effector_pose, end_effector_orn, (0, 0, 1), (0, 0, 0, 1))
-        vector = [b - a for a, b in zip(end_effector_pose, p_along_tcp)]
-        norm = np.linalg.norm(vector, ord=1)
-        norm_vector = [v / norm for v in vector]
-        return norm_vector
-
-    def _paint(self, end_effector_pose, end_effector_orn, show_debug_lines=False):
-        beams = self._generate_paint_beams(end_effector_pose, end_effector_orn, show_debug_lines)
-        results = self.p.rayTestBatch(*beams)
-        points = [item[3] for item in results]
-        orn_norm = self._get_tcp_orn_norm(end_effector_pose, end_effector_orn)
-        self.p.paint(self._part_id, points, (1, 0, 0), orn_norm)
+        current_status = p.get_job_status(self._part_id, self._paint_side, self._paint_color)
+        reward = current_status - self._last_status
+        self._last_status = current_status
+        return reward
 
     def step(self, action):
-        # Make sure that the step should be small enough, otherwise the paint won't be continuous
-        end_effector_pose, end_effector_orn = self.robot.apply_action(action)
-        self.p.stepSimulation()
-        self._paint(end_effector_pose, end_effector_orn, show_debug_lines=False)
-        done = self._termination()
+        self.robot.apply_action(action, self._part_id, self._paint_color)
+        p.stepSimulation()
         reward = self._reward()
+        done = self._termination()
         observation = self._augmented_observation()
 
         return observation, reward, done, {}
@@ -120,11 +98,24 @@ class RobotGymEnv(gym.Env):
         if mode == 'human':
             raise Exception('please set render parameter to true to see the result')
         else:
-            # TODO: figure out the meaning here.
-            pass
+            view_matrix = (0.5649663805961609, -0.7801607251167297, 0.2686304450035095, 0.0,
+                           0.8251139521598816, 0.5341863036155701, -0.18393480777740479, 0.0,
+                           0.0, 0.32556772232055664, 0.9455187320709229, 0.0,
+                           -0.02615496516227722, 0.1871221363544464, -1.1670949459075928, 1.0)
+
+            proj_matrix = (0.7499999403953552, 0.0, 0.0, 0.0,
+                           0.0, 1.0, 0.0, 0.0,
+                           0.0, 0.0, -1.0000200271606445, -1.0,
+                           0.0, 0.0, -0.02000020071864128, 0.0)
+
+            _, _, px, _, _ = p.getCameraImage(width=RENDER_WIDTH, height=RENDER_HEIGHT, viewMatrix=view_matrix,
+                                              projectionMatrix=proj_matrix, renderer=p.ER_BULLET_HARDWARE_OPENGL)
+            rgb_array = np.array(px)
+            rgb_array = rgb_array[:, :, :3]
+            return rgb_array
 
     def close(self):
-        self.p.disconnect()
+        p.disconnect()
 
     def seed(self, seed=None):
         _, seed = seeding.np_random(seed)
