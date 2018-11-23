@@ -54,6 +54,11 @@ def _get_pixel_coordinate(u, v, width, height):
     return i, j
 
 
+def _get_point_along_normal(point, length, vn):
+    proportional_vn = [i * length for i in vn]
+    return [a + b for a, b in zip(point, proportional_vn)]
+
+
 class BarycentricInterpolator:
     """
     Each f line in the obj will be initialized as a barycentric interpolator
@@ -143,8 +148,10 @@ class BarycentricInterpolator:
         addUserDebugLine(self._c, self._a, color)
 
     def get_point_along_normal(self, point, length):
-        proportional_vn = [i * length for i in self._vn]
-        return [a + b for a, b in zip(point, proportional_vn)]
+        return _get_point_along_normal(point, length, self._vn)
+
+    def get_normal(self):
+        return self._vn
 
     def draw_face_normal(self):
         center_point = []
@@ -155,6 +162,7 @@ class BarycentricInterpolator:
 
 
 class PART:
+    HOOK_DISTANCE_TO_PART = 0.1
     """
     Store the loaded urdf cache and its correspondent change texture parameters,
     extract the pixels on the part to be painted.
@@ -169,6 +177,7 @@ class PART:
         self.texture_pixels = None
         self._start_points = {}
         self.profile = {}
+        self.principle_axes = None
 
     def _get_texel(self, i, j):
         return (i + j * self.texture_width) * 3
@@ -200,6 +209,18 @@ class PART:
                     closest_bary = bary
         return closest_bary
 
+    def _get_hook_point(self, point, side):
+        nearest_vertex = self.vertices_kd_tree.query(point, k=1)[1]
+        # addUserDebugLine((0, 0, 0), point, (0, 1, 0))
+        bary = self._get_closest_bary(point, nearest_vertex, side)
+        if bary:
+            pose = bary.get_point_along_normal(point, PART.HOOK_DISTANCE_TO_PART)
+            orn = [-i for i in bary.get_normal()]
+            # bary.add_debug_info()
+            # bary.draw_face_normal()
+            return pose, orn
+        return None, None
+
     def paint(self, points, color, orientation):
         color = _get_color(color)
         nearest_vertices = self.vertices_kd_tree.query(points, k=1)[1]
@@ -208,9 +229,9 @@ class PART:
             bary = self._get_closest_bary(point, nearest_vertices[i], current_side)
             if bary:
                 self._change_texel_color(color, bary, point)
-                for bary in self.uv_map[nearest_vertices[i]]:
-                    bary.add_debug_info()
-                    bary.draw_face_normal()
+                # for bary in self.uv_map[nearest_vertices[i]]:
+                #     bary.add_debug_info()
+                #     bary.draw_face_normal()
 
         # _show_flange_debug_line(not_found)
         # _get_texture_image(self.texture_pixels, self.texture_width, self.texture_height).show()
@@ -259,18 +280,27 @@ class PART:
         return _get_texture_image(self.texture_pixels, self.texture_width, self.texture_height)
 
     def set_start_points(self, corner_points):
-        nearest_vertices = self.vertices_kd_tree.query(corner_points, k=1)[1]
         for side in Side:
             self._start_points[side] = []
         for i, point in enumerate(corner_points):
             for side in Side:
-                bary = self._get_closest_bary(point, nearest_vertices[i], side)
-                if bary:
-                    # lock distance is 0.1 along the normal vector
-                    self._start_points[side].append(bary.get_point_along_normal(point, 0.1))
+                pose, orn = self._get_hook_point(point, side)
+                if pose:
+                    self._start_points[side].append([pose, orn])
 
     def get_start_points(self, side):
         return self._start_points[side]
+
+    def get_guided_point(self, point, normal, delta_axis1, delta_axis2):
+        # surface_point = _get_point_along_normal(point, PART.HOOK_DISTANCE_TO_PART, normal)
+        point = list(point)
+        point[self.principle_axes[0]] += delta_axis1
+        point[self.principle_axes[1]] += delta_axis2
+        current_side = _get_side([-i for i in normal])
+        end_point = [a + b * 0.2 for a, b in zip(point, normal)]
+        result = rayTestBatch([point], [end_point])
+        surface_point = result[0][3]
+        return self._get_hook_point(surface_point, current_side)
 
 
 def _get_abs_file_path(root_path, path):
@@ -403,18 +433,20 @@ def _get_coordinate_range(v_array, col_num):
     return max(col) - min(col)
 
 
-def _get_corner_points(v_array):
-    ranges = [_get_coordinate_range(v_array, i) for i in range(3)]
-    target_dimensions = [i for i in range(3) if i != ranges.index(min(ranges))]
-    # remove one dimension, and follow the algorithm in line 251!
+def _get_corner_points(v_array, principle_axes):
     points = []
-    v_corner = sorted(v_array, key=lambda tup: tup[target_dimensions[0]] + tup[target_dimensions[1]])
+    v_corner = sorted(v_array, key=lambda tup: tup[principle_axes[0]] + tup[principle_axes[1]])
     points.append(v_corner[0])
     points.append(v_corner[-1])
-    v_counter_corner = sorted(v_array, key=lambda tup: tup[target_dimensions[0]] - tup[target_dimensions[1]])
+    v_counter_corner = sorted(v_array, key=lambda tup: tup[principle_axes[0]] - tup[principle_axes[1]])
     points.append(v_counter_corner[0])
     points.append(v_counter_corner[-1])
     return points
+
+
+def _get_principle_axes(v_array):
+    ranges = [_get_coordinate_range(v_array, i) for i in range(3)]
+    return [i for i in range(3) if i != ranges.index(min(ranges))]
 
 
 def _cache_obj(urdf_obj, obj_path):
@@ -424,7 +456,9 @@ def _cache_obj(urdf_obj, obj_path):
         uv_map = _get_uv_map(f, global_v_array, vt_array, vn_array)
         urdf_obj.vertices_kd_tree = cKDTree(global_v_array)
         urdf_obj.uv_map = uv_map
-        corner_points = _get_corner_points(global_v_array)
+        principle_axes = _get_principle_axes(v_array)
+        urdf_obj.principle_axes = principle_axes
+        corner_points = _get_corner_points(global_v_array, principle_axes)
         urdf_obj.set_start_points(corner_points)
         urdf_obj.preprocess()
 
@@ -474,3 +508,7 @@ def get_texture_image(urdf_id):
 
 def get_start_points(urdf_id, side):
     return _urdf_cache[urdf_id].get_start_points(side)
+
+
+def get_guided_point(urdf_id, point, normal, delta_axis1, delta_axis2):
+    return _urdf_cache[urdf_id].get_guided_point(point, normal, delta_axis1, delta_axis2)

@@ -35,7 +35,29 @@ def _get_tcp_orn_norm(end_effector_pose, end_effector_orn):
     return norm_vector
 
 
+def _normalize(v, tolerance=0.00001):
+    mag2 = sum(n * n for n in v)
+    if abs(mag2 - 1.0) > tolerance:
+        mag = math.sqrt(mag2)
+        v = tuple(n / mag for n in v)
+    return v
+
+
+def get_pose_orn(pose, orn):
+    old_z = (0, 0, 1)
+    new_z = orn
+    xyz = list(np.cross(old_z, new_z))
+    w = float(1 + np.dot(old_z, new_z))
+    xyz.append(w)
+    orn = _normalize(xyz)
+    return pose, orn
+
+
 class Robot:
+
+    DELTA_X = 0.1
+    DELTA_Y = 0.1
+    PAINT_PER_ACTION = 5
 
     def __init__(self, urdf_path, pos=(0, 0, 0), orn=(0, 0, 0, 1)):
         self.robot_id = p.loadURDF(urdf_path, pos, orn, useFixedBase=True, flags=p.URDF_USE_SELF_COLLISION)
@@ -54,14 +76,18 @@ class Robot:
         # max velocity, etc. setup.
         self._load_robot_info()
 
+        self._pose = None
+        self._orn = None
+        self._refresh_robot_pose()
+
     def _load_robot_info(self):
         self.joint_count = p.getNumJoints(self.robot_id)
         self._end_effector_idx = self.joint_count - 1
 
         self._jd = [1e-5 for _ in range(self.joint_count)]
         self._max_forces = [200 for _ in range(self._motor_count)]
-        joint_indices = [i for i in range(self._motor_count)]
-        self._default_pos = [pos[0] for pos in p.getJointStates(self.robot_id, joint_indices)]
+        self._joint_indices = [i for i in range(self._motor_count)]
+        self._default_pos = [pos[0] for pos in p.getJointStates(self.robot_id, self._joint_indices)]
 
         for i in range(self.joint_count):
             joint_info = p.getJointInfo(self.robot_id, i)
@@ -69,41 +95,67 @@ class Robot:
             self._motor_upper_limits.append(joint_info[9])
             self._max_velocities.append(joint_info[11])
 
+    def _refresh_robot_pose(self):
+        state = p.getLinkState(self.robot_id, self._end_effector_idx)
+        self._pose, self._orn = state[0], state[1]
+
+    def _draw_tcp_orn(self):
+        dst_target, _ = p.multiplyTransforms(self._pose, self._orn, (0, 0, 1), (0, 0, 0, 1))
+        p.addUserDebugLine(self._pose, dst_target, (0, 1, 0))
+
     def _paint(self, part_id, color, show_debug_lines=False):
-        link_state = p.getLinkState(self.robot_id, self._end_effector_idx)
-        beams = _generate_paint_beams(link_state[0], link_state[1], show_debug_lines)
+        beams = _generate_paint_beams(self._pose, self._orn, show_debug_lines)
         results = p.rayTestBatch(*beams)
         points = [item[3] for item in results]
-        orn_norm = _get_tcp_orn_norm(link_state[0], link_state[1])
+        orn_norm = _get_tcp_orn_norm(self._pose, self._orn)
         p.paint(part_id, points, color, orn_norm)
 
-    def reset(self):
+    def _get_actions(self, part_id, delta_axis1, delta_axis2):
+        orn_norm = _get_tcp_orn_norm(self._pose, self._orn)
+        current_pose, current_orn = self._pose, orn_norm
+        act = []
+        delta1 = delta_axis1 / Robot.PAINT_PER_ACTION
+        delta2 = delta_axis2 / Robot.PAINT_PER_ACTION
+        for _ in range(Robot.PAINT_PER_ACTION):
+            pos, orn_norm = p.get_guided_point(part_id, current_pose, current_orn, delta1, delta2)
+            pos, orn = get_pose_orn(pos, orn_norm)
+            joint_angles = p.calculateInverseKinematics(self.robot_id, self._end_effector_idx,
+                                                        pos, orn, maxNumIterations=100)
+            act.append(joint_angles)
+            current_pose, current_orn = pos, orn_norm
+        return act
+
+    def reset(self, pose):
+        pos, orn = get_pose_orn(*pose)
+        joint_angles = p.calculateInverseKinematics(self.robot_id, self._end_effector_idx,
+                                                    pos, orn, maxNumIterations=100)
         for i in range(self._motor_count):
-            p.resetJointState(self.robot_id, i, targetValue=self._default_pos[i])
+            p.resetJointState(self.robot_id, i, targetValue=joint_angles[i])
+        self._refresh_robot_pose()
 
     def get_observation(self):
-        state = p.getLinkState(self.robot_id, self._end_effector_idx)
-        pos, orn = state[0], state[1]
-        orn_norm = _get_tcp_orn_norm(pos, orn)
-        return pos, orn_norm
+        orn_norm = _get_tcp_orn_norm(self._pose, self._orn)
+        return self._pose, orn_norm
 
-    def apply_action(self, motor_set_value, part_id, color):
+    def apply_action(self, action, part_id, color):
         """
         support partial motor values
-        :param motor_set_value: motor positions
+        :param action: tcp + normal vector
         :param color: color to be painted
         :param part_id: part id
         :return:
         """
-        joint_indices = []
-        for i in range(len(motor_set_value)):
-            # if not self._motor_lower_limits[i] <= motor_set_value[i] <= self._motor_upper_limits[i]:
-            #     raise ValueError('The given motor value on axis {0} is out of motor limits'.format(i))
-            joint_indices.append(i)
-
-        p.setJointMotorControlArray(self.robot_id, joint_indices, p.POSITION_CONTROL, motor_set_value,
-                                    forces=self._max_forces)
-        self._paint(part_id, color)
+        delta_axis1 = action[0] * Robot.DELTA_X
+        delta_axis2 = action[1] * Robot.DELTA_Y
+        act = self._get_actions(part_id, delta_axis1, delta_axis2)
+        for a in act:
+            p.setJointMotorControlArray(self.robot_id, self._joint_indices, p.POSITION_CONTROL, a,
+                                        forces=self._max_forces)
+            for i in range(100):
+                p.stepSimulation()
+            self._refresh_robot_pose()
+            self._paint(part_id, color)
+            # self._draw_tcp_orn()
 
 
 if __name__ == '__main__':

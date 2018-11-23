@@ -6,25 +6,24 @@ import gym
 from gym.utils import seeding
 from robot import Robot
 
-# TODO: find out a way to figure them out automatically.
-TEXTURE_WIDTH = 240
-TEXTURE_HEIGHT = 240
-
-RENDER_HEIGHT = 720
-RENDER_WIDTH = 960
-
 
 class RobotGymEnv(gym.Env):
+    # TODO: find out a way to figure them out automatically.
+    TEXTURE_WIDTH = 240
+    TEXTURE_HEIGHT = 240
+
+    RENDER_HEIGHT = 720
+    RENDER_WIDTH = 960
 
     metadata = {
         'render.modes': ['human', 'rgb_array'],
         'video.frames_per_second': 60
     }
     reward_range = (-1e5, 1e5)
-    action_space = gym.spaces.Box(np.array((-1, -1)), np.array((1, 1)))
+    action_space = gym.spaces.Box(np.array((-1, -1)), np.array((1, 1)), dtype=np.float32)
     observation_space = gym.spaces.Dict({
-        'pose': gym.spaces.Box(np.array((-1, -1, -1)), np.array((1, 1, 1))),
-        'image': gym.spaces.Box(0, 255, [TEXTURE_WIDTH, TEXTURE_HEIGHT, 3])
+        'pose': gym.spaces.Box(np.array((-1, -1, -1)), np.array((1, 1, 1)), dtype=np.float32),
+        'image': gym.spaces.Box(0, 255, [TEXTURE_WIDTH, TEXTURE_HEIGHT, 3], dtype=np.uint8)
     })
 
     def __init__(self, urdf_root, renders=False):
@@ -53,14 +52,14 @@ class RobotGymEnv(gym.Env):
             p.setPhysicsEngineParameter(numSolverIterations=150)
 
     def _load_environment(self):
-        p.loadURDF('plane.urdf', (0, 0, -0.93), useFixedBase=True)
+        p.loadURDF('plane.urdf', (0, 0, 0), useFixedBase=True)
         self._part_id = p.loadURDF(os.path.join(self._urdf_root, 'urdf', 'painting', 'door.urdf'),
                                    (-0.5, -0.5, 0.5), useFixedBase=True)
         # robot_urdf_path = os.path.join(self._urdf_root, 'urdf', 'franka_description', 'robots', 'panda_arm.urdf')
         # self._robot = Franka(robot_urdf_path)
+        self._start_points = p.get_start_points(self._part_id, p.Side.front)
         self.robot = Robot('kuka_iiwa/model_free_base.urdf', pos=(0.2, -0.2, 0),
                            orn=p.getQuaternionFromEuler((0, 0, math.pi*3/2)))
-        self._start_points = p.get_start_points(self._part_id, p.Side.front)
         p.setGravity(0, 0, -10)
 
     def _termination(self):
@@ -92,7 +91,7 @@ class RobotGymEnv(gym.Env):
         return observation, reward, done, {}
 
     def reset(self):
-        self.robot.reset()
+        self.robot.reset(self._start_points[0])
 
     def render(self, mode='human'):
         if mode == 'human':
@@ -108,8 +107,9 @@ class RobotGymEnv(gym.Env):
                            0.0, 0.0, -1.0000200271606445, -1.0,
                            0.0, 0.0, -0.02000020071864128, 0.0)
 
-            _, _, px, _, _ = p.getCameraImage(width=RENDER_WIDTH, height=RENDER_HEIGHT, viewMatrix=view_matrix,
-                                              projectionMatrix=proj_matrix, renderer=p.ER_BULLET_HARDWARE_OPENGL)
+            _, _, px, _, _ = p.getCameraImage(width=RobotGymEnv.RENDER_WIDTH, height=RobotGymEnv.RENDER_HEIGHT,
+                                              viewMatrix=view_matrix, projectionMatrix=proj_matrix,
+                                              renderer=p.ER_BULLET_HARDWARE_OPENGL)
             rgb_array = np.array(px)
             rgb_array = rgb_array[:, :, :3]
             return rgb_array
@@ -128,11 +128,14 @@ if __name__ == '__main__':
     # f = Franka(franka_urdf_path)
     # print(franka_urdf_path)
     env = RobotGymEnv(os.path.dirname(os.path.realpath(__file__)), renders=True)
-    pos = (0.0, 0.0, 0.6)
-    orn = (0, -1, 0, 1)
-    act = p.calculateInverseKinematics(env.robot.robot_id, env.robot._end_effector_idx, pos, orn)
-    # action = [0, 0, 0, 0.5*math.pi, 0, -math.pi*0.5*0.66, 0]
-    for joint in range(7):
-        env.p.resetJointState(env.robot.robot_id, joint, targetValue=act[joint])
-    env.step(act)
+    env.reset()
+    # pos = (0.0, 0.0, 0.6)
+    # orn = (0, -1, 0, 1)
+    # act = p.calculateInverseKinematics(env.robot.robot_id, 6, pos, orn)
+    # # action = [0, 0, 0, 0.5*math.pi, 0, -math.pi*0.5*0.66, 0]
+    # for joint in range(7):
+    #     env.p.resetJointState(env.robot.robot_id, joint, targetValue=act[joint])
+    for _ in range(10):
+        act = [0.6, 0.4]
+        env.step(act)
     pass
