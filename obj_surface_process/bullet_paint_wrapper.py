@@ -1,24 +1,20 @@
 """
-This file wraps the urdf loading of pybullet, adding additional logic to process the uv mapping,
-please make sure the mesh obj files are processed by the process_script.py
+This file wraps the urdf loading of pybullet as a new function for painting parts, adding additional
+logic to process the uv mapping, please make sure the mesh obj files are processed by the process_script.py
 the changeTexture function will be called implicitly as long as the new method paint is called
 """
 import os
 import enum
 import pybullet as p
 from pybullet import *
-import pybullet_data
 import xml.etree.ElementTree as Et
 import numpy as np
 from PIL import Image
 from scipy.spatial import cKDTree
 
-BULLET_LIB_PATH = pybullet_data.getDataPath()
 _urdf_cache = {}
 # Primitive way, compare with a fixed vector to get the side of a part, here directly use x-axis.
 FRONT_FACE = (1, 0, 0)
-# Color to mark irrelevant pixels, used for preprocessing and calculate rewards
-IRRELEVANT_COLOR = (1, 1, 1)
 
 
 def _show_flange_debug_line(points):
@@ -39,9 +35,7 @@ def _get_color(color):
 
 
 class Side(enum.Enum):
-    """
-    First define only two sides for each part
-    """
+    """First define only two sides for each part"""
     front = 1
     back = 2
 
@@ -161,8 +155,10 @@ class BarycentricInterpolator:
         addUserDebugLine(center_point, target_point, (1, 0, 0) if self._side == Side.front else (0, 1, 0))
 
 
-class PART:
+class Part:
     HOOK_DISTANCE_TO_PART = 0.1
+    # Color to mark irrelevant pixels, used for preprocessing and calculate rewards
+    IRRELEVANT_COLOR = (1, 1, 1)
     """
     Store the loaded urdf cache and its correspondent change texture parameters,
     extract the pixels on the part to be painted.
@@ -211,10 +207,9 @@ class PART:
 
     def _get_hook_point(self, point, side):
         nearest_vertex = self.vertices_kd_tree.query(point, k=1)[1]
-        # addUserDebugLine((0, 0, 0), point, (0, 1, 0))
         bary = self._get_closest_bary(point, nearest_vertex, side)
         if bary:
-            pose = bary.get_point_along_normal(point, PART.HOOK_DISTANCE_TO_PART)
+            pose = bary.get_point_along_normal(point, Part.HOOK_DISTANCE_TO_PART)
             orn = [-i for i in bary.get_normal()]
             # bary.add_debug_info()
             # bary.draw_face_normal()
@@ -232,8 +227,6 @@ class PART:
                 # for bary in self.uv_map[nearest_vertices[i]]:
                 #     bary.add_debug_info()
                 #     bary.draw_face_normal()
-
-        # _show_flange_debug_line(not_found)
         # _get_texture_image(self.texture_pixels, self.texture_width, self.texture_height).show()
         changeTexture(self.texture_id, self.texture_pixels, self. texture_width, self.texture_height)
 
@@ -241,7 +234,6 @@ class PART:
         """
         Store relevant pixels according to its side of the part into self.profile
         Mark irrelevant pixels to IRRELEVANT_COLOR
-        :return:
         """
         for _, p_map in self.uv_map.items():
             for bary in p_map:
@@ -258,10 +250,13 @@ class PART:
             target_pixels = [(i, j) for i in range(self.texture_width) for j in range(self.texture_height)]
             for side in self.profile:
                 target_pixels = [i for i in target_pixels if i not in self.profile[side]]
-            color = _get_color(IRRELEVANT_COLOR)
+            color = _get_color(Part.IRRELEVANT_COLOR)
             for point in target_pixels:
                 self._change_pixel(color, *point)
             # _get_texture_image(self.texture_pixels, self.texture_width, self.texture_height).show()
+
+    def get_texture_size(self):
+        return self.texture_width, self.texture_height
 
     def get_job_status(self, side, color):
         color = _get_color(color)
@@ -292,7 +287,6 @@ class PART:
         return self._start_points[side]
 
     def get_guided_point(self, point, normal, delta_axis1, delta_axis2):
-        # surface_point = _get_point_along_normal(point, PART.HOOK_DISTANCE_TO_PART, normal)
         point = list(point)
         point[self.principle_axes[0]] += delta_axis1
         point[self.principle_axes[1]] += delta_axis2
@@ -335,18 +329,6 @@ def _retrieve_related_file_path(file_path):
             return None, None
     else:
         return None, None
-
-
-def _search_urdf_path(file_path):
-    path = file_path
-    if not path:
-        raise TypeError('file path is not given!')
-    if not os.path.isfile(path):
-        path = os.path.join(BULLET_LIB_PATH, path)
-        setAdditionalSearchPath(BULLET_LIB_PATH)
-        if not os.path.isfile(path):
-            raise TypeError('file does not exist!')
-    return path
 
 
 def _cache_texture(urdf_obj, obj_path, texture_path):
@@ -463,23 +445,20 @@ def _cache_obj(urdf_obj, obj_path):
         urdf_obj.preprocess()
 
 
-def _load_urdf_wrapper(*args, **kwargs):
+def load_part(*args, **kwargs):
     try:
-        path = _search_urdf_path(args[0])
+        path = args[0]
         u_id = p.loadURDF(*args, **kwargs)
         obj_file_path, texture_file_path = _retrieve_related_file_path(path)
         # Texture file exists, prepare for texture manipulation
         if texture_file_path:
-            part = PART(u_id)
+            part = Part(u_id)
             _urdf_cache[u_id] = part
             _cache_texture(part, obj_file_path, texture_file_path)
         return u_id
     except error as e:
         print(str(e))
         return -1
-
-
-loadURDF = _load_urdf_wrapper
 
 
 def paint(urdf_id, points, color, orientation):
@@ -512,3 +491,7 @@ def get_start_points(urdf_id, side):
 
 def get_guided_point(urdf_id, point, normal, delta_axis1, delta_axis2):
     return _urdf_cache[urdf_id].get_guided_point(point, normal, delta_axis1, delta_axis2)
+
+
+def get_texture_size(urdf_id):
+    return _urdf_cache[urdf_id].get_texture_size()

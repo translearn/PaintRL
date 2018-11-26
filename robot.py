@@ -59,7 +59,7 @@ class Robot:
     DELTA_Y = 0.1
     PAINT_PER_ACTION = 5
 
-    def __init__(self, urdf_path, pos=(0, 0, 0), orn=(0, 0, 0, 1)):
+    def __init__(self, step_manager, urdf_path, pos=(0, 0, 0), orn=(0, 0, 0, 1)):
         self.robot_id = p.loadURDF(urdf_path, pos, orn, useFixedBase=True, flags=p.URDF_USE_SELF_COLLISION)
 
         self._motor_count = 7
@@ -73,12 +73,14 @@ class Robot:
         self._motor_lower_limits = []
         self._motor_upper_limits = []
         self._max_velocities = []
-        # max velocity, etc. setup.
+        # max velocity, etc. setup
         self._load_robot_info()
 
         self._pose = None
         self._orn = None
         self._refresh_robot_pose()
+
+        self._step_manager = step_manager
 
     def _load_robot_info(self):
         self.joint_count = p.getNumJoints(self.robot_id)
@@ -151,8 +153,9 @@ class Robot:
         for a in act:
             p.setJointMotorControlArray(self.robot_id, self._joint_indices, p.POSITION_CONTROL, a,
                                         forces=self._max_forces)
+            # TODO: here the 100 should be refactored to a quantified criteria
             for i in range(100):
-                p.stepSimulation()
+                self._step_manager.step_simulation()
             self._refresh_robot_pose()
             self._paint(part_id, color)
             # self._draw_tcp_orn()
@@ -168,4 +171,4 @@ if __name__ == '__main__':
 
     current_dir = os.path.dirname(os.path.realpath(__file__))
     franka_urdf_path = os.path.join(current_dir, 'urdf', 'franka_description', 'robots', 'panda_arm.urdf')
-    f = Robot(franka_urdf_path)
+    f = Robot(None, franka_urdf_path)
