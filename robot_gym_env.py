@@ -169,7 +169,6 @@ class RobotGymEnv(gym.Env):
 
     def step(self, action):
         self.robot.apply_action(action, self._part_id, self._paint_color)
-        p.stepSimulation()
         reward = self._reward()
         done = self._termination()
         observation = self._augmented_observation()
@@ -211,7 +210,12 @@ class RobotGymEnv(gym.Env):
 
 if __name__ == '__main__':
     with RobotGymEnv(os.path.dirname(os.path.realpath(__file__)), renders=True, render_video=False) as env:
-        for _ in range(10):
-            # act = [random.random(), random.random()]
-            act = [0.6, 0.4]
-            env.step(act)
+        env.step([-1, -1])
+        # env.step([-1, -1])
+        env.step([1, 1])
+        pass
+        # env.step([1, 1])
+        # for _ in range(10):
+        #     # act = [random.random(), random.random()]
+        #     act = [0.6, 0.4]
+        #     env.step(act)

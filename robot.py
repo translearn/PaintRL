@@ -4,37 +4,6 @@ import numpy as np
 import obj_surface_process.bullet_paint_wrapper as p
 
 
-def _generate_paint_beams(end_effector_pose, end_effector_orn, show_debug_lines=False):
-    radius = 0.25
-    resolution = 0.02
-    target_ray_plane = 0.5
-    ray_origin = []
-    ray_dst = []
-    i = j = -radius
-    while i <= radius:
-        while j <= radius:
-            # Euclidean distance within the radius
-            if math.sqrt(math.pow(abs(i), 2) + math.pow(abs(j), 2)) <= radius:
-                ray_origin.append(end_effector_pose)
-                dst_ori = [i, j, target_ray_plane]
-                dst_target, _ = p.multiplyTransforms(end_effector_pose, end_effector_orn, dst_ori, (0, 0, 0, 1))
-                ray_dst.append(dst_target)
-                if show_debug_lines:
-                    p.addUserDebugLine(end_effector_pose, dst_target, (0, 1, 0))
-            j += resolution
-        i += resolution
-        j = -radius
-    return ray_origin, ray_dst
-
-
-def _get_tcp_orn_norm(end_effector_pose, end_effector_orn):
-    p_along_tcp, _ = p.multiplyTransforms(end_effector_pose, end_effector_orn, (0, 0, 1), (0, 0, 0, 1))
-    vector = [b - a for a, b in zip(end_effector_pose, p_along_tcp)]
-    norm = np.linalg.norm(vector, ord=1)
-    norm_vector = [v / norm for v in vector]
-    return norm_vector
-
-
 def _normalize(v, tolerance=0.00001):
     mag2 = sum(n * n for n in v)
     if abs(mag2 - 1.0) > tolerance:
@@ -51,6 +20,10 @@ def get_pose_orn(pose, orn):
     xyz.append(w)
     orn = _normalize(xyz)
     return pose, orn
+
+
+def _get_tcp_point_in_world(pos, orn, point):
+    return p.multiplyTransforms(pos, orn, point, (0, 0, 0, 1))
 
 
 class Robot:
@@ -101,30 +74,61 @@ class Robot:
         state = p.getLinkState(self.robot_id, self._end_effector_idx)
         self._pose, self._orn = state[0], state[1]
 
+    def _generate_paint_beams(self, show_debug_lines=False):
+        radius = 0.25
+        resolution = 0.02
+        target_ray_plane = 0.5
+        ray_origin = []
+        ray_dst = []
+        i = j = -radius
+        while i <= radius:
+            while j <= radius:
+                # Euclidean distance within the radius
+                if math.sqrt(math.pow(abs(i), 2) + math.pow(abs(j), 2)) <= radius:
+                    ray_origin.append(self._pose)
+                    dst_ori = [i, j, target_ray_plane]
+                    dst_target, _ = _get_tcp_point_in_world(self._pose, self._orn, dst_ori)
+                    ray_dst.append(dst_target)
+                    if show_debug_lines:
+                        p.addUserDebugLine(self._pose, dst_target, (0, 1, 0))
+                j += resolution
+            i += resolution
+            j = -radius
+        return ray_origin, ray_dst
+
+    def _get_tcp_orn_norm(self):
+        p_along_tcp, _ = p.multiplyTransforms(self._pose, self._orn, (0, 0, 1), (0, 0, 0, 1))
+        vector = [b - a for a, b in zip(self._pose, p_along_tcp)]
+        norm = np.linalg.norm(vector, ord=1)
+        norm_vector = [v / norm for v in vector]
+        return norm_vector
+
     def _draw_tcp_orn(self):
         dst_target, _ = p.multiplyTransforms(self._pose, self._orn, (0, 0, 1), (0, 0, 0, 1))
         p.addUserDebugLine(self._pose, dst_target, (0, 1, 0))
 
     def _paint(self, part_id, color, show_debug_lines=False):
-        beams = _generate_paint_beams(self._pose, self._orn, show_debug_lines)
+        beams = self._generate_paint_beams(show_debug_lines)
         results = p.rayTestBatch(*beams)
         points = [item[3] for item in results]
-        orn_norm = _get_tcp_orn_norm(self._pose, self._orn)
-        p.paint(part_id, points, color, orn_norm)
+        p.paint(part_id, points, color, self._get_tcp_orn_norm())
 
     def _get_actions(self, part_id, delta_axis1, delta_axis2):
-        orn_norm = _get_tcp_orn_norm(self._pose, self._orn)
-        current_pose, current_orn = self._pose, orn_norm
+        current_pose, current_orn_norm = self._pose, self._get_tcp_orn_norm()
         act = []
         delta1 = delta_axis1 / Robot.PAINT_PER_ACTION
         delta2 = delta_axis2 / Robot.PAINT_PER_ACTION
         for _ in range(Robot.PAINT_PER_ACTION):
-            pos, orn_norm = p.get_guided_point(part_id, current_pose, current_orn, delta1, delta2)
-            pos, orn = get_pose_orn(pos, orn_norm)
+            pos, orn_norm = p.get_guided_point(part_id, current_pose, current_orn_norm, delta1, delta2)
+            if not pos:
+                orn_norm = current_orn_norm
+                pos, orn = _get_tcp_point_in_world(current_pose, self._orn, [delta1, delta2, 0])
+            else:
+                pos, orn = get_pose_orn(pos, orn_norm)
             joint_angles = p.calculateInverseKinematics(self.robot_id, self._end_effector_idx,
                                                         pos, orn, maxNumIterations=100)
             act.append(joint_angles)
-            current_pose, current_orn = pos, orn_norm
+            current_pose, current_orn_norm = pos, orn_norm
         return act
 
     def reset(self, pose):
@@ -136,8 +140,7 @@ class Robot:
         self._refresh_robot_pose()
 
     def get_observation(self):
-        orn_norm = _get_tcp_orn_norm(self._pose, self._orn)
-        return self._pose, orn_norm
+        return self._pose, self._get_tcp_orn_norm()
 
     def apply_action(self, action, part_id, color):
         """
@@ -147,6 +150,9 @@ class Robot:
         :param part_id: part id
         :return:
         """
+        for a in action:
+            if not -1 <= a <= 1:
+                raise ValueError('Action out of range!')
         delta_axis1 = action[0] * Robot.DELTA_X
         delta_axis2 = action[1] * Robot.DELTA_Y
         act = self._get_actions(part_id, delta_axis1, delta_axis2)

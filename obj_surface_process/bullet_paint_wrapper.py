@@ -293,6 +293,8 @@ class Part:
         current_side = _get_side([-i for i in normal])
         end_point = [a + b * 0.2 for a, b in zip(point, normal)]
         result = rayTestBatch([point], [end_point])
+        if result[0][0] == -1:
+            return None, None
         surface_point = result[0][3]
         return self._get_hook_point(surface_point, current_side)
 
