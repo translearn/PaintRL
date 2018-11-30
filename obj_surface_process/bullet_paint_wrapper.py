@@ -13,8 +13,7 @@ from PIL import Image
 from scipy.spatial import cKDTree
 
 _urdf_cache = {}
-# Primitive way, compare with a fixed vector to get the side of a part, here directly use x-axis.
-FRONT_FACE = (1, 0, 0)
+AXES = [(1, 0, 0), (0, 1, 0), (0, 0, 1)]
 
 
 def _show_flange_debug_line(points):
@@ -38,6 +37,10 @@ class Side(enum.Enum):
     """First define only two sides for each part"""
     front = 1
     back = 2
+    other = 3
+
+
+VALID_SIDE = [Side.front, Side.back]
 
 
 def _get_pixel_coordinate(u, v, width, height):
@@ -118,9 +121,10 @@ class BarycentricInterpolator:
                     pixels.append((u, v))
         return pixels
 
-    def set_face_normal(self, vn, side):
+    def set_face_normal(self, vn, front_normal):
         self._vn = vn
-        self._side = side
+        self.align_normal()
+        self._side = _get_side(self._vn, front_normal)
 
     def is_in_same_side(self, side):
         return self._side == side
@@ -154,11 +158,27 @@ class BarycentricInterpolator:
         target_point = self.get_point_along_normal(center_point, 0.25)
         addUserDebugLine(center_point, target_point, (1, 0, 0) if self._side == Side.front else (0, 1, 0))
 
+    def calculate_normal_from_abc(self):
+        # Trust the sequence in obj file, that the points are given in counter clockwise sequence
+        u = [b - a for a, b in zip(self._a, self._b)]
+        v = [c - a for a, c in zip(self._a, self._c)]
+        n = np.cross(u, v)
+        norm_n = np.linalg.norm(n)
+        n = [i / norm_n for i in n]
+        return n
+
+    def align_normal(self):
+        self._vn = self.calculate_normal_from_abc()
+
 
 class Part:
     HOOK_DISTANCE_TO_PART = 0.1
     # Color to mark irrelevant pixels, used for preprocessing and calculate rewards
     IRRELEVANT_COLOR = (1, 1, 1)
+    FRONT_COLOR = (0.75, 0.75, 0.75)
+    BACK_COLOR = (0, 1, 0)
+    # Place holder in KD-tree, no point can have such a coordinate
+    IRRELEVANT_POSE = (10, 10, 10)
     """
     Store the loaded urdf cache and its correspondent change texture parameters,
     extract the pixels on the part to be painted.
@@ -166,7 +186,8 @@ class Part:
     def __init__(self, urdf_id=-1):
         self.urdf_id = urdf_id
         self.uv_map = None
-        self.vertices_kd_tree = None
+        self.vertices = None
+        self.vertices_kd_tree = {}
         self.texture_id = None
         self.texture_width = None
         self.texture_height = None
@@ -174,6 +195,7 @@ class Part:
         self._start_points = {}
         self.profile = {}
         self.principle_axes = None
+        self.front_normal = None
 
     def _get_texel(self, i, j):
         return (i + j * self.texture_width) * 3
@@ -206,7 +228,7 @@ class Part:
         return closest_bary
 
     def _get_hook_point(self, point, side):
-        nearest_vertex = self.vertices_kd_tree.query(point, k=1)[1]
+        nearest_vertex = self.vertices_kd_tree[side].query(point, k=1)[1]
         bary = self._get_closest_bary(point, nearest_vertex, side)
         if bary:
             pose = bary.get_point_along_normal(point, Part.HOOK_DISTANCE_TO_PART)
@@ -218,8 +240,8 @@ class Part:
 
     def paint(self, points, color, orientation):
         color = _get_color(color)
-        nearest_vertices = self.vertices_kd_tree.query(points, k=1)[1]
-        current_side = _get_side([-i for i in orientation])
+        current_side = _get_side([-i for i in orientation], self.front_normal)
+        nearest_vertices = self.vertices_kd_tree[current_side].query(points, k=1)[1]
         for i, point in enumerate(points):
             bary = self._get_closest_bary(point, nearest_vertices[i], current_side)
             if bary:
@@ -230,6 +252,39 @@ class Part:
         # _get_texture_image(self.texture_pixels, self.texture_width, self.texture_height).show()
         changeTexture(self.texture_id, self.texture_pixels, self. texture_width, self.texture_height)
 
+    def _label_part(self):
+        # preprocessing all irrelevant pixels
+        target_pixels = [(i, j) for i in range(self.texture_width) for j in range(self.texture_height)]
+        for side in self.profile:
+            target_pixels = [i for i in target_pixels if i not in self.profile[side]]
+        irr_color = _get_color(Part.IRRELEVANT_COLOR)
+        front_color = _get_color(Part.FRONT_COLOR)
+        back_color = _get_color(Part.BACK_COLOR)
+        for point in target_pixels:
+            self._change_pixel(irr_color, *point)
+        for point in self.profile[Side.back]:
+            self._change_pixel(back_color, *point)
+        for point in self.profile[Side.front]:
+            self._change_pixel(front_color, *point)
+        # _get_texture_image(self.texture_pixels, self.texture_width, self.texture_height).show()
+
+    def _build_kd_tree(self):
+        side_label = {}
+        point_list = {}
+        for side in self.profile:
+            point_list[side] = [i for i in self.vertices]
+
+        for key, p_map in self.uv_map.items():
+            for side in self.profile:
+                side_label[side] = False
+            for bary in p_map:
+                side_label[bary.get_side()] = True
+            for side, label in side_label.items():
+                if not label:
+                    point_list[side][key] = Part.IRRELEVANT_POSE
+        for side in self.profile:
+            self.vertices_kd_tree[side] = cKDTree(point_list[side])
+
     def preprocess(self):
         """
         Store relevant pixels according to its side of the part into self.profile
@@ -239,21 +294,21 @@ class Part:
             for bary in p_map:
                 if bary.get_side():
                     pixels = bary.get_uv_pixels(self.texture_width, self.texture_height)
+                    # bary.add_debug_info()
                     side = bary.get_side()
                     if side not in self.profile:
                         self.profile[side] = []
                     self.profile[side].extend(pixels)
         if self.profile:
+            invalid_side = None
             for side in self.profile:
+                if side not in VALID_SIDE:
+                    invalid_side = side
+                    continue
                 self.profile[side] = list(set(self.profile[side]))
-            # preprocessing all irrelevant pixels
-            target_pixels = [(i, j) for i in range(self.texture_width) for j in range(self.texture_height)]
-            for side in self.profile:
-                target_pixels = [i for i in target_pixels if i not in self.profile[side]]
-            color = _get_color(Part.IRRELEVANT_COLOR)
-            for point in target_pixels:
-                self._change_pixel(color, *point)
-            # _get_texture_image(self.texture_pixels, self.texture_width, self.texture_height).show()
+            del self.profile[invalid_side]
+            self._label_part()
+            self._build_kd_tree()
 
     def get_texture_size(self):
         return self.texture_width, self.texture_height
@@ -275,10 +330,10 @@ class Part:
         return _get_texture_image(self.texture_pixels, self.texture_width, self.texture_height)
 
     def set_start_points(self, corner_points):
-        for side in Side:
+        for side in VALID_SIDE:
             self._start_points[side] = []
         for i, point in enumerate(corner_points):
-            for side in Side:
+            for side in VALID_SIDE:
                 pose, orn = self._get_hook_point(point, side)
                 if pose:
                     self._start_points[side].append([pose, orn])
@@ -290,10 +345,14 @@ class Part:
         point = list(point)
         point[self.principle_axes[0]] += delta_axis1
         point[self.principle_axes[1]] += delta_axis2
-        current_side = _get_side([-i for i in normal])
-        end_point = [a + b * 0.2 for a, b in zip(point, normal)]
+        # Try to avoid collision with robot in ray test, should be refactored!
+        # point = _get_point_along_normal(point, Part.HOOK_DISTANCE_TO_PART / 2, normal)
+        current_side = _get_side([-i for i in normal], self.front_normal)
+        end_point = [a + b for a, b in zip(point, normal)]
         result = rayTestBatch([point], [end_point])
-        if result[0][0] == -1:
+        if not result[0][0] == self.urdf_id:
+            print('Error in Ray Test!!!')
+            # return point, normal
             return None, None
         surface_point = result[0][3]
         return self._get_hook_point(surface_point, current_side)
@@ -381,14 +440,24 @@ def _retrieve_obj_elements(file):
     return v_array, vn_array, vt_array
 
 
-def _get_side(v):
-    # Take care of the possible rotation made in loading the part!
+def _get_included_angle(a, b):
     # assume unified vector
-    angle = np.arccos(np.dot(FRONT_FACE, v))
-    return Side.front if - np.pi / 2 <= angle <= np.pi / 2 else Side.back
+    return np.arccos(np.dot(a, b))
 
 
-def _get_uv_map(file, v_array, vt_array, vn_array):
+def _get_side(front_normal, v):
+    # Take care of the possible rotation made in loading the part!
+    angle_front = _get_included_angle(front_normal, v)
+    back_normal = [-i for i in front_normal]
+    angle_back = _get_included_angle(back_normal, v)
+    if - np.pi / 3 <= angle_front <= np.pi / 3:
+        return Side.front
+    if - np.pi / 3 <= angle_back <= np.pi / 3:
+        return Side.back
+    return Side.other
+
+
+def _get_uv_map(file, v_array, vt_array, vn_array, front_normal):
     file.seek(0)
     uv_map = {}
     for line in file:
@@ -402,9 +471,15 @@ def _get_uv_map(file, v_array, vt_array, vn_array):
             bary_interpolator = BarycentricInterpolator(*v_coordinates)
             bary_interpolator.set_uv_coordinate(*uv_coordinates)
             vn_index = [int(i.split('/')[2]) - 1 for i in content[1:] if len(i.split('/')) >= 3]
-            if vn_index and vn_index[0] == vn_index[1] == vn_index[2]:
-                vn_normal = vn_array[vn_index[0]]
-                bary_interpolator.set_face_normal(vn_normal, _get_side(vn_normal))
+            if vn_index:
+                if vn_index[0] == vn_index[1] == vn_index[2]:
+                    vn_normal = vn_array[vn_index[0]]
+                else:
+                    vn_normal = [(a + b + c) / 3 for a, b, c in zip(vn_array[vn_index[0]],
+                                                                    vn_array[vn_index[1]], vn_array[vn_index[2]])]
+                    norm = np.linalg.norm(vn_normal)
+                    vn_normal = [i / norm for i in vn_normal]
+                bary_interpolator.set_face_normal(vn_normal, front_normal)
             for v_index in triangle_point_indexes:
                 if v_index not in uv_map:
                     uv_map[v_index] = []
@@ -430,21 +505,24 @@ def _get_corner_points(v_array, principle_axes):
 
 def _get_principle_axes(v_array):
     ranges = [_get_coordinate_range(v_array, i) for i in range(3)]
-    return [i for i in range(3) if i != ranges.index(min(ranges))]
+    axes = [i for i in range(3)]
+    principle_axes = [i for i in axes if i != ranges.index(min(ranges))]
+    non_principle_axis = [i for i in axes if i not in principle_axes]
+    return principle_axes, non_principle_axis[0]
 
 
 def _cache_obj(urdf_obj, obj_path):
     with open(obj_path, mode='r') as f:
         v_array, vn_array, vt_array = _retrieve_obj_elements(f)
         global_v_array = _get_global_coordinate(urdf_obj.urdf_id, v_array)
-        uv_map = _get_uv_map(f, global_v_array, vt_array, vn_array)
-        urdf_obj.vertices_kd_tree = cKDTree(global_v_array)
+        urdf_obj.principle_axes, non_principle_axis = _get_principle_axes(global_v_array)
+        urdf_obj.front_normal = AXES[non_principle_axis]
+        uv_map = _get_uv_map(f, global_v_array, vt_array, vn_array, urdf_obj.front_normal)
+        urdf_obj.vertices = global_v_array
         urdf_obj.uv_map = uv_map
-        principle_axes = _get_principle_axes(v_array)
-        urdf_obj.principle_axes = principle_axes
-        corner_points = _get_corner_points(global_v_array, principle_axes)
-        urdf_obj.set_start_points(corner_points)
         urdf_obj.preprocess()
+        corner_points = _get_corner_points(global_v_array, urdf_obj.principle_axes)
+        urdf_obj.set_start_points(corner_points)
 
 
 def load_part(*args, **kwargs):

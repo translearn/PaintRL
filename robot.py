@@ -28,8 +28,8 @@ def _get_tcp_point_in_world(pos, orn, point):
 
 class Robot:
 
-    DELTA_X = 0.1
-    DELTA_Y = 0.1
+    DELTA_X = 0.05
+    DELTA_Y = 0.05
     PAINT_PER_ACTION = 5
 
     def __init__(self, step_manager, urdf_path, pos=(0, 0, 0), orn=(0, 0, 0, 1)):
@@ -99,7 +99,7 @@ class Robot:
     def _get_tcp_orn_norm(self):
         p_along_tcp, _ = p.multiplyTransforms(self._pose, self._orn, (0, 0, 1), (0, 0, 0, 1))
         vector = [b - a for a, b in zip(self._pose, p_along_tcp)]
-        norm = np.linalg.norm(vector, ord=1)
+        norm = np.linalg.norm(vector)
         norm_vector = [v / norm for v in vector]
         return norm_vector
 
@@ -115,6 +115,8 @@ class Robot:
 
     def _get_actions(self, part_id, delta_axis1, delta_axis2):
         current_pose, current_orn_norm = self._pose, self._get_tcp_orn_norm()
+        joint_pose = self._get_pose()
+        self._set_pose(self._default_pos)
         act = []
         delta1 = delta_axis1 / Robot.PAINT_PER_ACTION
         delta2 = delta_axis2 / Robot.PAINT_PER_ACTION
@@ -122,21 +124,35 @@ class Robot:
             pos, orn_norm = p.get_guided_point(part_id, current_pose, current_orn_norm, delta1, delta2)
             if not pos:
                 orn_norm = current_orn_norm
-                pos, orn = _get_tcp_point_in_world(current_pose, self._orn, [delta1, delta2, 0])
+                _, orn = get_pose_orn(current_pose, current_orn_norm)
+                # Possible bug, along tool coordinate
+                pos, orn = _get_tcp_point_in_world(current_pose, orn, [delta2, delta1, 0])
             else:
                 pos, orn = get_pose_orn(pos, orn_norm)
-            joint_angles = p.calculateInverseKinematics(self.robot_id, self._end_effector_idx,
-                                                        pos, orn, maxNumIterations=100)
+            joint_angles = self._get_joint_angles(pos, orn)
             act.append(joint_angles)
             current_pose, current_orn_norm = pos, orn_norm
+        self._set_pose(joint_pose)
         return act
+
+    def _set_pose(self, joint_angles):
+        for i in range(self._motor_count):
+            p.resetJointState(self.robot_id, i, targetValue=joint_angles[i])
+
+    def _get_pose(self):
+        pose = []
+        result = p.getJointStates(self.robot_id, self._joint_indices)
+        for item in result:
+            pose.append(item[0])
+        return pose
+
+    def _get_joint_angles(self, pos, orn):
+        return p.calculateInverseKinematics(self.robot_id, self._end_effector_idx, pos, orn, maxNumIterations=100)
 
     def reset(self, pose):
         pos, orn = get_pose_orn(*pose)
-        joint_angles = p.calculateInverseKinematics(self.robot_id, self._end_effector_idx,
-                                                    pos, orn, maxNumIterations=100)
-        for i in range(self._motor_count):
-            p.resetJointState(self.robot_id, i, targetValue=joint_angles[i])
+        joint_angles = self._get_joint_angles(pos, orn)
+        self._set_pose(joint_angles)
         self._refresh_robot_pose()
 
     def get_observation(self):
