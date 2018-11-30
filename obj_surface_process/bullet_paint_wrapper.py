@@ -123,6 +123,7 @@ class BarycentricInterpolator:
 
     def set_face_normal(self, vn, front_normal):
         self._vn = vn
+        # normal could be recalculated or just use the value from obj file, here recalculated
         self.align_normal()
         self._side = _get_side(self._vn, front_normal)
 
@@ -345,17 +346,15 @@ class Part:
         point = list(point)
         point[self.principle_axes[0]] += delta_axis1
         point[self.principle_axes[1]] += delta_axis2
-        # Try to avoid collision with robot in ray test, should be refactored!
-        # point = _get_point_along_normal(point, Part.HOOK_DISTANCE_TO_PART / 2, normal)
         current_side = _get_side([-i for i in normal], self.front_normal)
         end_point = [a + b for a, b in zip(point, normal)]
         result = rayTestBatch([point], [end_point])
         if not result[0][0] == self.urdf_id:
             print('Error in Ray Test!!!')
-            # return point, normal
-            return None, None
+            return None, normal
         surface_point = result[0][3]
-        return self._get_hook_point(surface_point, current_side)
+        pos, orn = self._get_hook_point(surface_point, current_side)
+        return pos, orn if orn else normal
 
 
 def _get_abs_file_path(root_path, path):

@@ -72,7 +72,8 @@ class Robot:
 
     def _refresh_robot_pose(self):
         state = p.getLinkState(self.robot_id, self._end_effector_idx)
-        self._pose, self._orn = state[0], state[1]
+        diff_in_end_effector = [-i for i in state[2]]
+        self._pose, self._orn = _get_tcp_point_in_world(state[0], state[1], diff_in_end_effector)
 
     def _generate_paint_beams(self, show_debug_lines=False):
         radius = 0.25
@@ -122,13 +123,10 @@ class Robot:
         delta2 = delta_axis2 / Robot.PAINT_PER_ACTION
         for _ in range(Robot.PAINT_PER_ACTION):
             pos, orn_norm = p.get_guided_point(part_id, current_pose, current_orn_norm, delta1, delta2)
+            pos, orn = get_pose_orn(pos, orn_norm)
             if not pos:
-                orn_norm = current_orn_norm
-                _, orn = get_pose_orn(current_pose, current_orn_norm)
                 # Possible bug, along tool coordinate
-                pos, orn = _get_tcp_point_in_world(current_pose, orn, [delta2, delta1, 0])
-            else:
-                pos, orn = get_pose_orn(pos, orn_norm)
+                pos, _ = _get_tcp_point_in_world(current_pose, orn, [delta2, delta1, 0])
             joint_angles = self._get_joint_angles(pos, orn)
             act.append(joint_angles)
             current_pose, current_orn_norm = pos, orn_norm

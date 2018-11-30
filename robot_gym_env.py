@@ -211,25 +211,10 @@ class RobotGymEnv(gym.Env):
 
 if __name__ == '__main__':
     with RobotGymEnv(os.path.dirname(os.path.realpath(__file__)), renders=True, render_video=False) as env:
-        # env.step([-1, -1])
-        # env.step([-1, -1])
-        env.step([1, 1])
-        env.step([1, 1])
-        env.step([0, 1])
-        env.step([0, 1])
-        env.step([-1, 0])
-        env.step([-1, 0])
-        env.step([-1, 0])
-        env.step([-1, 0])
-        env.step([-1, 0])
-        env.step([1, 0])
         for _ in range(7):
             env.step([0, 1])
-        env.step([0, 1])
-        # env.step([0, -1])
-        # env.step([0, -1])
+        env.step([1, 0])
         pass
-        # env.step([1, 1])
         # for _ in range(10):
         #     # act = [random.random(), random.random()]
         #     act = [0.6, 0.4]
