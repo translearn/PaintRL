@@ -23,7 +23,7 @@ def _get_view_matrix():
 
 class StepManager:
     """
-    Manage video record function, a use case of dependency injection pattern to decouple the dependency between
+    Manage video record function, using dependency injection pattern to decouple the dependency between
     RobotGymEnv and Robot
     """
     TIME_STEP = 1 / 240
@@ -211,9 +211,9 @@ class RobotGymEnv(gym.Env):
 
 if __name__ == '__main__':
     with RobotGymEnv(os.path.dirname(os.path.realpath(__file__)), renders=True, render_video=False) as env:
-        for _ in range(7):
+        for _ in range(11):
             env.step([0, 1])
-        env.step([1, 0])
+        env.step([0, 1])
         pass
         # for _ in range(10):
         #     # act = [random.random(), random.random()]

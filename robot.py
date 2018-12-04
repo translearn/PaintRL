@@ -4,6 +4,14 @@ import numpy as np
 import obj_surface_process.bullet_paint_wrapper as p
 
 
+def _get_target_projection_params(projection_distance):
+    ratio = projection_distance / 0.5
+    radius = 0.25 * ratio
+    resolution = 0.02 * ratio
+    target_ray_plane = projection_distance
+    return radius, resolution, target_ray_plane
+
+
 def _normalize(v, tolerance=0.00001):
     mag2 = sum(n * n for n in v)
     if abs(mag2 - 1.0) > tolerance:
@@ -24,6 +32,30 @@ def get_pose_orn(pose, orn):
 
 def _get_tcp_point_in_world(pos, orn, point):
     return p.multiplyTransforms(pos, orn, point, (0, 0, 0, 1))
+
+
+def _regularize_pose_orn(old_pos, old_orn, new_pos, new_orn, target_len):
+    if not new_pos:
+        return new_pos, new_orn
+    diff = [b - a for a, b in zip(old_pos, new_pos)]
+    actual_len = np.linalg.norm(diff)
+    if actual_len >= target_len:
+        ratio_old = target_len / actual_len
+        ratio_new = (actual_len - target_len) / target_len
+        diff_vec = [a * ratio_old for a in diff]
+        pose = [a + b for a, b in zip(old_pos, diff_vec)]
+        orn = [a * ratio_old + b * ratio_new for a, b in zip(old_orn, new_orn)]
+        # orn = new_orn
+        orn = _normalize(orn)
+        return pose, orn
+    else:
+        ratio_old = actual_len / target_len
+        ratio_new = (target_len - actual_len) / target_len
+        pose = new_pos
+        orn = [a * ratio_old + b * ratio_new for a, b in zip(old_orn, new_orn)]
+        # orn = new_orn
+        orn = _normalize(orn)
+        return pose, orn
 
 
 class Robot:
@@ -72,13 +104,13 @@ class Robot:
 
     def _refresh_robot_pose(self):
         state = p.getLinkState(self.robot_id, self._end_effector_idx)
+        # change center of mess to wrist center.
         diff_in_end_effector = [-i for i in state[2]]
         self._pose, self._orn = _get_tcp_point_in_world(state[0], state[1], diff_in_end_effector)
 
     def _generate_paint_beams(self, show_debug_lines=False):
-        radius = 0.25
-        resolution = 0.02
-        target_ray_plane = 0.5
+        # Here the 0.2 could be refactored.
+        radius, resolution, target_ray_plane = _get_target_projection_params(0.2)
         ray_origin = []
         ray_dst = []
         i = j = -radius
@@ -116,13 +148,15 @@ class Robot:
 
     def _get_actions(self, part_id, delta_axis1, delta_axis2):
         current_pose, current_orn_norm = self._pose, self._get_tcp_orn_norm()
-        joint_pose = self._get_pose()
-        self._set_pose(self._default_pos)
+        joint_pose = self._get_joint_pose()
+        self._set_joint_pose(self._default_pos)
         act = []
         delta1 = delta_axis1 / Robot.PAINT_PER_ACTION
         delta2 = delta_axis2 / Robot.PAINT_PER_ACTION
+        # target_len = math.sqrt(delta1 ** 2 + delta2 ** 2)
         for _ in range(Robot.PAINT_PER_ACTION):
             pos, orn_norm = p.get_guided_point(part_id, current_pose, current_orn_norm, delta1, delta2)
+            # pos, orn_norm = _regularize_pose_orn(current_pose, current_orn_norm, pos, orn_norm, target_len)
             pos, orn = get_pose_orn(pos, orn_norm)
             if not pos:
                 # Possible bug, along tool coordinate
@@ -130,14 +164,14 @@ class Robot:
             joint_angles = self._get_joint_angles(pos, orn)
             act.append(joint_angles)
             current_pose, current_orn_norm = pos, orn_norm
-        self._set_pose(joint_pose)
+        self._set_joint_pose(joint_pose)
         return act
 
-    def _set_pose(self, joint_angles):
+    def _set_joint_pose(self, joint_angles):
         for i in range(self._motor_count):
             p.resetJointState(self.robot_id, i, targetValue=joint_angles[i])
 
-    def _get_pose(self):
+    def _get_joint_pose(self):
         pose = []
         result = p.getJointStates(self.robot_id, self._joint_indices)
         for item in result:
@@ -150,7 +184,7 @@ class Robot:
     def reset(self, pose):
         pos, orn = get_pose_orn(*pose)
         joint_angles = self._get_joint_angles(pos, orn)
-        self._set_pose(joint_angles)
+        self._set_joint_pose(joint_angles)
         self._refresh_robot_pose()
 
     def get_observation(self):

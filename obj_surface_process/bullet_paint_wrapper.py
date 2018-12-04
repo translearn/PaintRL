@@ -5,7 +5,6 @@ the changeTexture function will be called implicitly as long as the new method p
 """
 import os
 import enum
-import pybullet as p
 from pybullet import *
 import xml.etree.ElementTree as Et
 import numpy as np
@@ -527,7 +526,7 @@ def _cache_obj(urdf_obj, obj_path):
 def load_part(*args, **kwargs):
     try:
         path = args[0]
-        u_id = p.loadURDF(*args, **kwargs)
+        u_id = loadURDF(*args, **kwargs)
         obj_file_path, texture_file_path = _retrieve_related_file_path(path)
         # Texture file exists, prepare for texture manipulation
         if texture_file_path:
