@@ -540,16 +540,16 @@ def load_part(*args, **kwargs):
         return -1
 
 
-def paint(urdf_id, points, color, orientation):
+def paint(urdf_id, points, color, side):
     """
     paint a specific part
     :param urdf_id: integer ID of the model returned by bullet
     :param points: intersection points in global coordinate
     :param color: list [r, g, b], each in range [0, 1]
-    :param orientation: orientation of the paint gun, normalized vector
+    :param side: side of the part to be painted
     :return:
     """
-    _urdf_cache[urdf_id].paint(points, color, orientation)
+    _urdf_cache[urdf_id].paint(points, color, side)
 
 
 def get_job_status(urdf_id, side, color):
