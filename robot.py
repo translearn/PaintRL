@@ -140,11 +140,11 @@ class Robot:
         dst_target, _ = p.multiplyTransforms(self._pose, self._orn, (0, 0, 1), (0, 0, 0, 1))
         p.addUserDebugLine(self._pose, dst_target, (0, 1, 0))
 
-    def _paint(self, part_id, color, show_debug_lines=False):
+    def _paint(self, part_id, color, paint_side, show_debug_lines=False):
         beams = self._generate_paint_beams(show_debug_lines)
         results = p.rayTestBatch(*beams)
         points = [item[3] for item in results]
-        p.paint(part_id, points, color, self._get_tcp_orn_norm())
+        p.paint(part_id, points, color, paint_side)
 
     def _get_actions(self, part_id, delta_axis1, delta_axis2):
         current_pose, current_orn_norm = self._pose, self._get_tcp_orn_norm()
@@ -154,7 +154,7 @@ class Robot:
         delta1 = delta_axis1 / Robot.PAINT_PER_ACTION
         delta2 = delta_axis2 / Robot.PAINT_PER_ACTION
         # target_len = math.sqrt(delta1 ** 2 + delta2 ** 2)
-        for _ in range(Robot.PAINT_PER_ACTION):
+        for i in range(Robot.PAINT_PER_ACTION):
             pos, orn_norm = p.get_guided_point(part_id, current_pose, current_orn_norm, delta1, delta2)
             # pos, orn_norm = _regularize_pose_orn(current_pose, current_orn_norm, pos, orn_norm, target_len)
             pos, orn = get_pose_orn(pos, orn_norm)
@@ -190,12 +190,13 @@ class Robot:
     def get_observation(self):
         return self._pose, self._get_tcp_orn_norm()
 
-    def apply_action(self, action, part_id, color):
+    def apply_action(self, action, part_id, color, paint_side):
         """
         support partial motor values
         :param action: tcp + normal vector
         :param color: color to be painted
         :param part_id: part id
+        :param paint_side: side of the part
         :return:
         """
         for a in action:
@@ -211,7 +212,7 @@ class Robot:
             for i in range(100):
                 self._step_manager.step_simulation()
             self._refresh_robot_pose()
-            self._paint(part_id, color)
+            self._paint(part_id, color, paint_side)
             # self._draw_tcp_orn()
 
 

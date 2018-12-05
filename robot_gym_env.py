@@ -138,7 +138,7 @@ class RobotGymEnv(gym.Env):
     def _load_environment(self):
         p.loadURDF('plane.urdf', (0, 0, 0), useFixedBase=True)
         self._part_id = p.load_part(os.path.join(self._urdf_root, 'urdf', 'painting', 'door.urdf'),
-                                    (-0.4, -0.6, 0.3), useFixedBase=True)
+                                    (-0.4, -0.6, 0.25), useFixedBase=True)
         texture_width, texture_height = p.get_texture_size(self._part_id)
         RobotGymEnv.observation_space = gym.spaces.Dict({
             'pose': gym.spaces.Box(np.array((-1, -1, -1)), np.array((1, 1, 1)), dtype=np.float32),
@@ -168,7 +168,7 @@ class RobotGymEnv(gym.Env):
         return reward
 
     def step(self, action):
-        self.robot.apply_action(action, self._part_id, self._paint_color)
+        self.robot.apply_action(action, self._part_id, self._paint_color, self._paint_side)
         reward = self._reward()
         done = self._termination()
         observation = self._augmented_observation()
@@ -211,10 +211,14 @@ class RobotGymEnv(gym.Env):
 
 if __name__ == '__main__':
     with RobotGymEnv(os.path.dirname(os.path.realpath(__file__)), renders=True, render_video=False) as env:
-        for _ in range(11):
+        for _ in range(10):
             env.step([0, 1])
         env.step([0, 1])
-        pass
+        env.step([0, 1])
+        env.step([0, 1])
+        env.step([0, 1])
+        env.step([0, 1])
+        env.step([0, 1])
         # for _ in range(10):
         #     # act = [random.random(), random.random()]
         #     act = [0.6, 0.4]

@@ -238,9 +238,10 @@ class Part:
             return pose, orn
         return None, None
 
-    def paint(self, points, color, orientation):
+    def paint(self, points, color, side):
         color = _get_color(color)
-        current_side = _get_side([-i for i in orientation], self.front_normal)
+        # current_side = _get_side([-i for i in side], self.front_normal)
+        current_side = side
         nearest_vertices = self.vertices_kd_tree[current_side].query(points, k=1)[1]
         for i, point in enumerate(points):
             bary = self._get_closest_bary(point, nearest_vertices[i], current_side)
