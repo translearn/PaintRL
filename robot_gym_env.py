@@ -178,6 +178,7 @@ class RobotGymEnv(gym.Env):
     def reset(self):
         # p.addUserDebugLine((0, 0, 0), self._start_points[0][0], (0, 1, 0))
         self.robot.reset(self._start_points[0])
+        return self._augmented_observation()
 
     def render(self, mode='human'):
         if mode == 'human':

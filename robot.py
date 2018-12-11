@@ -201,7 +201,7 @@ class Robot:
         """
         for a in action:
             if not -1 <= a <= 1:
-                raise ValueError('Action out of range!')
+                raise ValueError('Action {} out of range!'.format(action))
         delta_axis1 = action[0] * Robot.DELTA_X
         delta_axis2 = action[1] * Robot.DELTA_Y
         act = self._get_actions(part_id, delta_axis1, delta_axis2)
