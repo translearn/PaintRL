@@ -13,6 +13,7 @@ from scipy.spatial import cKDTree
 
 _urdf_cache = {}
 AXES = [(1, 0, 0), (0, 1, 0), (0, 0, 1)]
+MIN_PAINT_DIAMETER = 0.025
 
 
 def _show_flange_debug_line(points):
@@ -494,11 +495,23 @@ def _get_coordinate_range(v_array, col_num):
 def _get_corner_points(v_array, principle_axes):
     points = []
     v_corner = sorted(v_array, key=lambda tup: tup[principle_axes[0]] + tup[principle_axes[1]])
-    points.append(v_corner[0])
-    points.append(v_corner[-1])
+    v_corner_0 = list(v_corner[0])
+    v_corner_0[principle_axes[0]] += MIN_PAINT_DIAMETER
+    v_corner_0[principle_axes[1]] += MIN_PAINT_DIAMETER
+    points.append(v_corner_0)
+    v_corner_m1 = list(v_corner[-1])
+    v_corner_m1[principle_axes[0]] -= MIN_PAINT_DIAMETER
+    v_corner_m1[principle_axes[1]] -= MIN_PAINT_DIAMETER
+    points.append(v_corner_m1)
     v_counter_corner = sorted(v_array, key=lambda tup: tup[principle_axes[0]] - tup[principle_axes[1]])
-    points.append(v_counter_corner[0])
-    points.append(v_counter_corner[-1])
+    v_counter_corner_0 = list(v_counter_corner[0])
+    v_counter_corner_0[principle_axes[0]] += MIN_PAINT_DIAMETER
+    v_counter_corner_0[principle_axes[1]] -= MIN_PAINT_DIAMETER
+    points.append(v_counter_corner_0)
+    v_counter_corner_m1 = list(v_counter_corner[-1])
+    v_counter_corner_m1[principle_axes[0]] -= MIN_PAINT_DIAMETER
+    v_counter_corner_m1[principle_axes[1]] += MIN_PAINT_DIAMETER
+    points.append(v_counter_corner_m1)
     return points
 
 
@@ -525,6 +538,7 @@ def _cache_obj(urdf_obj, obj_path):
 
 
 def load_part(*args, **kwargs):
+    # Params same as loadURDF
     try:
         path = args[0]
         u_id = loadURDF(*args, **kwargs)

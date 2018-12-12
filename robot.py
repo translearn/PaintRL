@@ -72,6 +72,8 @@ class Robot:
     DELTA_X = 0.05
     DELTA_Y = 0.05
     PAINT_PER_ACTION = 5
+    IN_POSE_TOLERANCE = 0.02
+    NOT_ON_PART_TERMINATE_TIME = 1000
 
     def __init__(self, step_manager, urdf_path, pos=(0, 0, 0), orn=(0, 0, 0, 1), render=True):
         self.robot_id = p.loadURDF(urdf_path, pos, orn, useFixedBase=True, flags=p.URDF_USE_SELF_COLLISION)
@@ -89,17 +91,16 @@ class Robot:
         self._max_velocities = []
         # max velocity, etc. setup
         self._load_robot_info()
-
-        self._pose = None
-        self._orn = None
+        self._render = render
         self._refresh_robot_pose()
 
         self._step_manager = step_manager
+        self._reset_termination_variables()
+
+    def _reset_termination_variables(self):
         self._terminate = False
         self._terminate_counter = 0
         self._last_on_part = True
-
-        self._render = render
 
     def _load_robot_info(self):
         self.joint_count = p.getNumJoints(self.robot_id)
@@ -116,11 +117,14 @@ class Robot:
             self._motor_upper_limits.append(joint_info[9])
             self._max_velocities.append(joint_info[11])
 
-    def _refresh_robot_pose(self):
-        state = p.getLinkState(self.robot_id, self._end_effector_idx)
-        # change center of mess to wrist center.
-        diff_in_end_effector = [-i for i in state[2]]
-        self._pose, self._orn = _get_tcp_point_in_world(state[0], state[1], diff_in_end_effector)
+    def _refresh_robot_pose(self, pos=(0, 0, 0), orn=(0, 0, 0, 1)):
+        if self._render:
+            state = p.getLinkState(self.robot_id, self._end_effector_idx)
+            # change center of mess to wrist center.
+            diff_in_end_effector = [-i for i in state[2]]
+            self._pose, self._orn = _get_tcp_point_in_world(state[0], state[1], diff_in_end_effector)
+        else:
+            self._pose, self._orn = pos, orn
 
     def _generate_paint_beams(self, show_debug_lines=False):
         # Here the 0.2 could be refactored.
@@ -160,12 +164,21 @@ class Robot:
         points = [item[3] for item in results]
         p.paint(part_id, points, color, paint_side)
 
+    def _count_not_on_part(self):
+        # check consecutive not on part
+        if self._last_on_part:
+            self._terminate_counter = 0
+        self._terminate_counter += 1
+        self._last_on_part = False
+        if self._terminate_counter > Robot.NOT_ON_PART_TERMINATE_TIME:
+            self._terminate = True
+
     def _get_actions(self, part_id, delta_axis1, delta_axis2):
         current_pose, current_orn_norm = self._pose, self._get_tcp_orn_norm()
         joint_pose = self._get_joint_pose()
         self._set_joint_pose(self._default_pos)
         act = []
-        poses = []
+        poses = {}
         delta1 = delta_axis1 / Robot.PAINT_PER_ACTION
         delta2 = delta_axis2 / Robot.PAINT_PER_ACTION
         # target_len = math.sqrt(delta1 ** 2 + delta2 ** 2)
@@ -176,15 +189,20 @@ class Robot:
             if not pos:
                 # Possible bug, along tool coordinate
                 pos, _ = _get_tcp_point_in_world(current_pose, orn, [delta2, delta1, 0])
+                self._count_not_on_part()
+            else:
+                self._last_on_part = True
             joint_angles = self._get_joint_angles(pos, orn)
             act.append(joint_angles)
+            poses[i] = [pos, orn]
             current_pose, current_orn_norm = pos, orn_norm
         self._set_joint_pose(joint_pose)
-        return act
+        return act, poses
 
     def _set_joint_pose(self, joint_angles):
-        for i in range(self._motor_count):
-            p.resetJointState(self.robot_id, i, targetValue=joint_angles[i])
+        if self._render:
+            for i in range(self._motor_count):
+                p.resetJointState(self.robot_id, i, targetValue=joint_angles[i])
 
     def _get_joint_pose(self):
         pose = []
@@ -196,11 +214,20 @@ class Robot:
     def _get_joint_angles(self, pos, orn):
         return p.calculateInverseKinematics(self.robot_id, self._end_effector_idx, pos, orn, maxNumIterations=100)
 
+    def _check_in_position(self, pos):
+        diff = [b - a for a, b in zip(pos, self._pose)]
+        norm_diff = np.linalg.norm(diff)
+        return True if norm_diff < Robot.IN_POSE_TOLERANCE else False
+
     def reset(self, pose):
         pos, orn = get_pose_orn(*pose)
         joint_angles = self._get_joint_angles(pos, orn)
         self._set_joint_pose(joint_angles)
-        self._refresh_robot_pose()
+        self._refresh_robot_pose(pos, orn)
+        self._reset_termination_variables()
+
+    def termination_request(self):
+        return self._terminate
 
     def get_observation(self):
         return self._pose, self._get_tcp_orn_norm()
@@ -221,14 +248,18 @@ class Robot:
                 # raise ValueError('Action {} out of range!'.format(action))
         delta_axis1 = action[0] * Robot.DELTA_X
         delta_axis2 = action[1] * Robot.DELTA_Y
-        act = self._get_actions(part_id, delta_axis1, delta_axis2)
-        for a in act:
-            p.setJointMotorControlArray(self.robot_id, self._joint_indices, p.POSITION_CONTROL, a,
-                                        forces=self._max_forces)
-            # TODO: here the 100 should be refactored to a quantified criteria
-            for i in range(100):
-                self._step_manager.step_simulation()
-            self._refresh_robot_pose()
+        act, poses = self._get_actions(part_id, delta_axis1, delta_axis2)
+        for a, pos in zip(act, poses.values()):
+            if self._render:
+                p.setJointMotorControlArray(self.robot_id, self._joint_indices, p.POSITION_CONTROL, a,
+                                            forces=self._max_forces)
+                # TODO: here the 100 should be refactored to a quantified criteria
+                for i in range(100):
+                    self._step_manager.step_simulation()
+            self._refresh_robot_pose(*pos)
+            if not self._check_in_position(pos[0]):
+                # Robot in singularity point or given point is out of working space
+                print('not in pose!')
             self._paint(part_id, color, paint_side)
             # self._draw_tcp_orn()
 

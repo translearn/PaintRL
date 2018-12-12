@@ -1,6 +1,7 @@
 import os
 import math
 import time
+from random import randint
 import numpy as np
 import obj_surface_process.bullet_paint_wrapper as p
 import pybullet_data
@@ -98,9 +99,6 @@ class RobotGymEnv(gym.Env):
     observation_space = None
 
     def __init__(self, urdf_root, renders=False, render_video=False):
-        self.robot = None
-        self._part_id = None
-        self._start_points = None
         self._renders = renders
         self._render_video = render_video
         self._urdf_root = urdf_root
@@ -150,7 +148,9 @@ class RobotGymEnv(gym.Env):
 
     def _termination(self):
         max_possible_point = p.get_job_limit(self._part_id, self._paint_side)
-        return False if max_possible_point > self._last_status else True
+        finished = False if max_possible_point > self._last_status else True
+        robot_termination = self.robot.termination_request()
+        return finished or robot_termination
 
     def _augmented_observation(self):
         observation = {}
@@ -176,8 +176,8 @@ class RobotGymEnv(gym.Env):
         return observation, reward, done, {}
 
     def reset(self):
-        # p.addUserDebugLine((0, 0, 0), self._start_points[0][0], (0, 1, 0))
-        self.robot.reset(self._start_points[0])
+        start_point = self._start_points[randint(0, len(self._start_points) - 1)]
+        self.robot.reset(start_point)
         return self._augmented_observation()
 
     def render(self, mode='human'):
@@ -220,7 +220,3 @@ if __name__ == '__main__':
         env.step([0, 1])
         env.step([0, 1])
         env.step([0, 1])
-        # for _ in range(10):
-        #     # act = [random.random(), random.random()]
-        #     act = [0.6, 0.4]
-        #     env.step(act)
