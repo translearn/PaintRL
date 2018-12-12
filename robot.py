@@ -34,6 +34,15 @@ def _get_tcp_point_in_world(pos, orn, point):
     return p.multiplyTransforms(pos, orn, point, (0, 0, 0, 1))
 
 
+def _clip_by_value(v):
+    if v < -1:
+        return -1
+    elif v > 1:
+        return 1
+    else:
+        return v
+
+
 def _regularize_pose_orn(old_pos, old_orn, new_pos, new_orn, target_len):
     if not new_pos:
         return new_pos, new_orn
@@ -64,7 +73,7 @@ class Robot:
     DELTA_Y = 0.05
     PAINT_PER_ACTION = 5
 
-    def __init__(self, step_manager, urdf_path, pos=(0, 0, 0), orn=(0, 0, 0, 1)):
+    def __init__(self, step_manager, urdf_path, pos=(0, 0, 0), orn=(0, 0, 0, 1), render=True):
         self.robot_id = p.loadURDF(urdf_path, pos, orn, useFixedBase=True, flags=p.URDF_USE_SELF_COLLISION)
 
         self._motor_count = 7
@@ -86,6 +95,11 @@ class Robot:
         self._refresh_robot_pose()
 
         self._step_manager = step_manager
+        self._terminate = False
+        self._terminate_counter = 0
+        self._last_on_part = True
+
+        self._render = render
 
     def _load_robot_info(self):
         self.joint_count = p.getNumJoints(self.robot_id)
@@ -151,6 +165,7 @@ class Robot:
         joint_pose = self._get_joint_pose()
         self._set_joint_pose(self._default_pos)
         act = []
+        poses = []
         delta1 = delta_axis1 / Robot.PAINT_PER_ACTION
         delta2 = delta_axis2 / Robot.PAINT_PER_ACTION
         # target_len = math.sqrt(delta1 ** 2 + delta2 ** 2)
@@ -199,9 +214,11 @@ class Robot:
         :param paint_side: side of the part
         :return:
         """
-        for a in action:
+        for i, a in enumerate(action):
             if not -1 <= a <= 1:
-                raise ValueError('Action {} out of range!'.format(action))
+                # Actually should be done by the RL framework!
+                action[i] = _clip_by_value(a)
+                # raise ValueError('Action {} out of range!'.format(action))
         delta_axis1 = action[0] * Robot.DELTA_X
         delta_axis2 = action[1] * Robot.DELTA_Y
         act = self._get_actions(part_id, delta_axis1, delta_axis2)

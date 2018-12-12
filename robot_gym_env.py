@@ -145,7 +145,7 @@ class RobotGymEnv(gym.Env):
             'image': gym.spaces.Box(0, 255, [texture_width, texture_height, 3], dtype=np.uint8)})
         self._start_points = p.get_start_points(self._part_id, p.Side.front)
         self.robot = Robot(self._step_manager, 'kuka_iiwa/model_free_base.urdf', pos=(0.2, -0.2, 0),
-                           orn=p.getQuaternionFromEuler((0, 0, math.pi*3/2)))
+                           orn=p.getQuaternionFromEuler((0, 0, math.pi*3/2)), render=self._renders)
         p.setGravity(0, 0, -10)
 
     def _termination(self):
