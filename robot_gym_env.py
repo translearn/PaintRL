@@ -95,7 +95,7 @@ class RobotGymEnv(gym.Env):
 
     metadata = {'render.modes': ['human', 'rgb_array'], 'video.frames_per_second': 30}
     reward_range = (-1e5, 1e5)
-    action_space = gym.spaces.Box(np.array((-1, -1)), np.array((1, 1)), dtype=np.float32)
+    action_space = spaces.Box(np.array((-1, -1)), np.array((1, 1)), dtype=np.float32)
     # will be setup after the part loaded and the size of the texture is clear
     observation_space = None
 
@@ -139,9 +139,9 @@ class RobotGymEnv(gym.Env):
         self._part_id = p.load_part(os.path.join(self._urdf_root, 'urdf', 'painting', 'door.urdf'),
                                     (-0.4, -0.6, 0.25), useFixedBase=True)
         texture_width, texture_height = p.get_texture_size(self._part_id)
-        RobotGymEnv.observation_space = gym.spaces.Dict({
-            'pose': gym.spaces.Box(np.array((-1, -1, -1)), np.array((1, 1, 1)), dtype=np.float32),
-            'image': gym.spaces.Box(0, 255, [texture_width, texture_height, 3], dtype=np.uint8)})
+        RobotGymEnv.observation_space = spaces.Dict({
+            'pose': spaces.Box(np.array((-1, -1, -1)), np.array((1, 1, 1)), dtype=np.float32),
+            'image': spaces.Box(0, 255, [texture_width, texture_height, 3], dtype=np.uint8)})
         self._start_points = p.get_start_points(self._part_id, p.Side.front)
         self.robot = Robot(self._step_manager, 'kuka_iiwa/model_free_base.urdf', pos=(0.2, -0.2, 0),
                            orn=p.getQuaternionFromEuler((0, 0, math.pi*3/2)), render=self._renders)
