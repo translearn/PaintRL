@@ -6,6 +6,7 @@ import numpy as np
 import obj_surface_process.bullet_paint_wrapper as p
 import pybullet_data
 import gym
+from gym import spaces
 from gym.utils import seeding
 from robot import Robot
 from video_renderer import VideoRecorder
