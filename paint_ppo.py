@@ -1,6 +1,7 @@
 import os
 import argparse
 import tensorflow as tf
+import keras
 import numpy as np
 import ray
 import ray.tune as tune
@@ -17,18 +18,12 @@ class PaintModel(Model):
         pass
 
     def _build_layers_v2(self, input_dict, num_outputs, options):
-        scaled_images = tf.cast(input_dict['obs']['image'], tf.float32) / 255.
-        conv1 = tf.layers.conv2d(inputs=scaled_images, filters=32, strides=(4, 4), kernel_size=(8, 8), padding='VALID',
-                                 activation=tf.nn.relu, name='conv1')
+        res_backbone = keras.applications.resnet50.ResNet50(include_top=False,
+                                                            input_tensor=input_dict['obs']['image'],
+                                                            input_shape=(240, 240, 3), pooling='avg')
 
-        conv2 = tf.layers.conv2d(inputs=conv1, filters=64, strides=(2, 2), kernel_size=(4, 4), padding='VALID',
-                                 activation=tf.nn.relu, name='conv2')
-
-        conv3 = tf.layers.conv2d(inputs=conv2, filters=64, strides=(1, 1), kernel_size=(3, 3), padding='VALID',
-                                 activation=tf.nn.relu, name='conv3')
-
-        conv3 = flatten(conv3)
-        fc1 = tf.layers.dense(conv3, 512, activation=tf.nn.relu, name='fc1')
+        conv = flatten(res_backbone.output)
+        fc1 = tf.layers.dense(conv, 512, activation=tf.nn.relu, name='fc1')
         fc1 = tf.concat([fc1, input_dict['obs']['pose']], 1)
         fc2 = tf.layers.dense(fc1, 128, activation=tf.nn.relu, name='fc2')
         fc3 = tf.layers.dense(fc2, 32, activation=tf.nn.relu, name='fc3')
