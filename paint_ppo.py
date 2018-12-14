@@ -17,19 +17,22 @@ class PaintModel(Model):
         pass
 
     def _build_layers_v2(self, input_dict, num_outputs, options):
-        scaled_images = tf.cast(input_dict['obs']['image'], tf.float32) / 224.
-        res_backbone = tf.keras.applications.mobilenet.MobileNet(include_top=False,
-                                                                 input_tensor=scaled_images)
-        res_backbone.trainable = False
-        conv = flatten(res_backbone.output)
-        # # fc1 = tf.layers.dense(conv, 512, activation=tf.nn.relu, name='fc1')
-        # fc1 = tf.concat([conv, input_dict['obs']['pose']], 1)
-        # fc2 = tf.layers.dense(fc1, 128, activation=tf.nn.relu, name='fc2')
-        # fc3 = tf.layers.dense(fc2, 32, activation=tf.nn.relu, name='fc3')
-        # out = tf.layers.dense(fc3, 4, activation=tf.nn.tanh, name='out')
-        fc3 = conv
-        out = tf.layers.dense(conv, 4, activation=tf.nn.tanh, name='out')
+        scaled_images = tf.cast(input_dict['obs']['image'], tf.float32) / 255.
+        conv1 = tf.layers.conv2d(inputs=scaled_images, filters=32, strides=(4, 4), kernel_size=(8, 8), padding='VALID',
+                                 activation=tf.nn.relu, name='conv1')
 
+        conv2 = tf.layers.conv2d(inputs=conv1, filters=64, strides=(2, 2), kernel_size=(4, 4), padding='VALID',
+                                 activation=tf.nn.relu, name='conv2')
+
+        conv3 = tf.layers.conv2d(inputs=conv2, filters=64, strides=(1, 1), kernel_size=(3, 3), padding='VALID',
+                                 activation=tf.nn.relu, name='conv3')
+
+        conv3 = flatten(conv3)
+        fc1 = tf.layers.dense(conv3, 512, activation=tf.nn.relu, name='fc1')
+        fc1 = tf.concat([fc1, input_dict['obs']['pose']], 1)
+        fc2 = tf.layers.dense(fc1, 128, activation=tf.nn.relu, name='fc2')
+        fc3 = tf.layers.dense(fc2, 32, activation=tf.nn.relu, name='fc3')
+        out = tf.layers.dense(fc3, 4, activation=tf.nn.tanh, name='out')
         return out, fc3
 
 
