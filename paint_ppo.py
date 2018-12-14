@@ -1,7 +1,6 @@
 import os
 import argparse
 import tensorflow as tf
-import keras
 import numpy as np
 import ray
 import ray.tune as tune
@@ -18,9 +17,9 @@ class PaintModel(Model):
         pass
 
     def _build_layers_v2(self, input_dict, num_outputs, options):
-        res_backbone = keras.applications.resnet50.ResNet50(include_top=False,
-                                                            input_tensor=input_dict['obs']['image'],
-                                                            input_shape=(240, 240, 3), pooling='avg')
+        res_backbone = tf.keras.applications.resnet50.ResNet50(include_top=False,
+                                                               input_tensor=input_dict['obs']['image'],
+                                                               input_shape=(240, 240, 3), pooling='avg')
 
         conv = flatten(res_backbone.output)
         fc1 = tf.layers.dense(conv, 512, activation=tf.nn.relu, name='fc1')
