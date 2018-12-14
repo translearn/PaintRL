@@ -20,13 +20,16 @@ class PaintModel(Model):
         res_backbone = tf.keras.applications.resnet50.ResNet50(include_top=False,
                                                                input_tensor=input_dict['obs']['image'],
                                                                input_shape=(240, 240, 3), pooling='avg')
-
+        res_backbone.trainable = False
         conv = flatten(res_backbone.output)
-        fc1 = tf.layers.dense(conv, 512, activation=tf.nn.relu, name='fc1')
-        fc1 = tf.concat([fc1, input_dict['obs']['pose']], 1)
-        fc2 = tf.layers.dense(fc1, 128, activation=tf.nn.relu, name='fc2')
-        fc3 = tf.layers.dense(fc2, 32, activation=tf.nn.relu, name='fc3')
-        out = tf.layers.dense(fc3, 4, activation=tf.nn.tanh, name='out')
+        # # fc1 = tf.layers.dense(conv, 512, activation=tf.nn.relu, name='fc1')
+        # fc1 = tf.concat([conv, input_dict['obs']['pose']], 1)
+        # fc2 = tf.layers.dense(fc1, 128, activation=tf.nn.relu, name='fc2')
+        # fc3 = tf.layers.dense(fc2, 32, activation=tf.nn.relu, name='fc3')
+        # out = tf.layers.dense(fc3, 4, activation=tf.nn.tanh, name='out')
+        fc3 = conv
+        out = tf.layers.dense(conv, 4, activation=tf.nn.tanh, name='out')
+
         return out, fc3
 
 
@@ -147,6 +150,11 @@ if __name__ == '__main__':
                 'vf_share_layers': True,
                 'num_gpus': 1,
                 'num_gpus_per_worker': 1,
+                'sample_batch_size': 50,
+                'train_batch_size': 50,
+                'sgd_minibatch_size': 32,
+                # what exactly is this?
+                'num_sgd_iter': 2,
             },
         }
     }
