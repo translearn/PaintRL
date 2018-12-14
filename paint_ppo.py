@@ -17,9 +17,9 @@ class PaintModel(Model):
         pass
 
     def _build_layers_v2(self, input_dict, num_outputs, options):
-        res_backbone = tf.keras.applications.resnet50.ResNet50(include_top=False,
-                                                               input_tensor=input_dict['obs']['image'],
-                                                               input_shape=(240, 240, 3), pooling='avg')
+        scaled_images = tf.cast(input_dict['obs']['image'], tf.float32) / 224.
+        res_backbone = tf.keras.applications.mobilenet.MobileNet(include_top=False,
+                                                                 input_tensor=scaled_images)
         res_backbone.trainable = False
         conv = flatten(res_backbone.output)
         # # fc1 = tf.layers.dense(conv, 512, activation=tf.nn.relu, name='fc1')
