@@ -199,7 +199,7 @@ class Part:
         self.front_normal = None
 
     def _get_texel(self, i, j):
-        return (i + j * self.texture_width) * 3
+        return min((i + j * self.texture_width) * 3, len(self.texture_pixels) - 1)
 
     def _change_pixel(self, color, i, j):
         texel = self._get_texel(i, j)
