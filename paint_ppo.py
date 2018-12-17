@@ -31,13 +31,14 @@ class PaintModel(Model):
         output_tensor = tf.import_graph_def(pretrained_graph, input_map={'input_tensor': scaled_images},
                                             return_elements=['resnet_model/Relu_48:0'])[0]
         # output_tensor = resnet_graph.get_tensor_by_name('resnet_model/Relu_48:0')
-        print()
+        print('Total operations:{}'.format(len(tf.get_default_graph().get_operations())))
         output_tensor = flatten(output_tensor)
         # fc1 = tf.layers.dense(conv3, 512, activation=tf.nn.relu, name='fc1')
         fc1 = tf.concat([output_tensor, input_dict['obs']['pose']], 1)
         fc2 = tf.layers.dense(fc1, 128, activation=tf.nn.relu, name='fc2')
         fc3 = tf.layers.dense(fc2, 32, activation=tf.nn.relu, name='fc3')
         out = tf.layers.dense(fc3, 4, activation=tf.nn.tanh, name='out')
+        print('Total operations:{}'.format(len(tf.get_default_graph().get_operations())))
         return out, fc3
 
 
