@@ -11,19 +11,30 @@ from ray.rllib.models.misc import flatten
 from PaintRLEnv.robot_gym_env import RobotGymEnv
 
 
+def _get_pre_trained_graph_output():
+    resnet_path = './resnet_v2_fp32_savedmodel_NCHW/1538687196'
+    with tf.Session(graph=tf.Graph()) as sess:
+        tf.saved_model.loader.load(sess, [tf.saved_model.tag_constants.SERVING], resnet_path)
+    return sess.graph_def
+
+
+pretrained_graph = _get_pre_trained_graph_output()
+
+
 class PaintModel(Model):
 
     def _build_layers(self, inputs, num_outputs, options):
         pass
 
     def _build_layers_v2(self, input_dict, num_outputs, options):
-        res_backbone = tf.keras.applications.resnet50.ResNet50(include_top=False,
-                                                               input_tensor=input_dict['obs']['image'],
-                                                               input_shape=(240, 240, 3), pooling='avg')
-
-        conv = flatten(res_backbone.output)
-        fc1 = tf.layers.dense(conv, 512, activation=tf.nn.relu, name='fc1')
-        fc1 = tf.concat([fc1, input_dict['obs']['pose']], 1)
+        scaled_images = tf.cast(input_dict['obs']['image'], tf.float32) / 224.
+        output_tensor = tf.import_graph_def(pretrained_graph, input_map={'input_tensor': scaled_images},
+                                            return_elements=['resnet_model/Relu_48:0'])[0]
+        # output_tensor = resnet_graph.get_tensor_by_name('resnet_model/Relu_48:0')
+        print()
+        output_tensor = flatten(output_tensor)
+        # fc1 = tf.layers.dense(conv3, 512, activation=tf.nn.relu, name='fc1')
+        fc1 = tf.concat([output_tensor, input_dict['obs']['pose']], 1)
         fc2 = tf.layers.dense(fc1, 128, activation=tf.nn.relu, name='fc2')
         fc3 = tf.layers.dense(fc2, 32, activation=tf.nn.relu, name='fc3')
         out = tf.layers.dense(fc3, 4, activation=tf.nn.tanh, name='out')
@@ -76,9 +87,6 @@ def train(config, reporter):
     while True:
         result = agent.train()
         reporter(**result)
-
-
-tf.keras.backend.set_session(tf.get_default_session())
 
 
 if __name__ == '__main__':
