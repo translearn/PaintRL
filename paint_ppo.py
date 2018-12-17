@@ -27,6 +27,7 @@ class PaintModel(Model):
         pass
 
     def _build_layers_v2(self, input_dict, num_outputs, options):
+        tf.reset_default_graph()
         scaled_images = tf.cast(input_dict['obs']['image'], tf.float32) / 224.
         output_tensor = tf.import_graph_def(pretrained_graph, input_map={'input_tensor': scaled_images},
                                             return_elements=['resnet_model/Relu_48:0'])[0]
