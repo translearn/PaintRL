@@ -351,7 +351,7 @@ class Part:
         end_point = [a + b for a, b in zip(point, normal)]
         result = rayTestBatch([point], [end_point])
         if not result[0][0] == self.urdf_id:
-            print('Error in Ray Test!!!')
+            # print('Error in Ray Test!!!')
             return None, normal
         surface_point = result[0][3]
         pos, orn = self._get_hook_point(surface_point, current_side)
