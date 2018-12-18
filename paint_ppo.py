@@ -11,38 +11,13 @@ from ray.rllib.models.misc import flatten
 from PaintRLEnv.robot_gym_env import RobotGymEnv
 
 
-def _get_pre_trained_graph_output():
-    resnet_path = './resnet_v2_fp32_savedmodel_NCHW/1538687196'
-    with tf.Session(graph=tf.Graph()) as sess:
-        tf.saved_model.loader.load(sess, [tf.saved_model.tag_constants.SERVING], resnet_path)
-    return sess.graph_def
-
-
-pretrained_graph = _get_pre_trained_graph_output()
-
-
 class PaintModel(Model):
 
     def _build_layers(self, inputs, num_outputs, options):
         pass
 
     def _build_layers_v2(self, input_dict, num_outputs, options):
-        # with tf.variable_scope('imported_net_scope', reuse=tf.AUTO_REUSE):
-        #     print('Total operations:{}'.format(len(tf.get_default_graph().get_operations())))
-        #     scaled_images = tf.cast(input_dict['obs']['image'], tf.float32) / 224.
-        #     output_tensor = tf.import_graph_def(pretrained_graph, input_map={'input_tensor': scaled_images},
-        #                                         return_elements=['resnet_model/Relu_48:0'])[0]
-        #     # output_tensor = resnet_graph.get_tensor_by_name('resnet_model/Relu_48:0')
-        #     print('Total operations:{}'.format(len(tf.get_default_graph().get_operations())))
-        #     output_tensor = flatten(output_tensor)
-        #     # fc1 = tf.layers.dense(conv3, 512, activation=tf.nn.relu, name='fc1')
-        #     fc1 = tf.concat([output_tensor, input_dict['obs']['pose']], 1)
-        #     fc2 = tf.layers.dense(fc1, 128, activation=tf.nn.relu, name='fc2')
-        #     fc3 = tf.layers.dense(fc2, 32, activation=tf.nn.relu, name='fc3')
-        #     out = tf.layers.dense(fc3, 4, activation=tf.nn.tanh, name='out')
-        #     print('Total operations:{}'.format(len(tf.get_default_graph().get_operations())))
-        #     return out, fc3
-        print('Total operations:{}'.format(len(tf.get_default_graph().get_operations())))
+        # print('Total operations:{}'.format(len(tf.get_default_graph().get_operations())))
         scaled_images = tf.cast(input_dict['obs']['image'], tf.float32) / 255.
         conv1 = tf.layers.conv2d(inputs=scaled_images, filters=32, strides=(4, 4), kernel_size=(8, 8), padding='VALID',
                                  activation=tf.nn.relu, name='conv1')
@@ -54,12 +29,12 @@ class PaintModel(Model):
                                  activation=tf.nn.relu, name='conv3')
 
         conv3 = flatten(conv3)
-        fc1 = tf.layers.dense(conv3, 512, activation=tf.nn.relu, name='fc1')
-        fc1 = tf.concat([fc1, input_dict['obs']['pose']], 1)
+        # fc1 = tf.layers.dense(conv3, 512, activation=tf.nn.relu, name='fc1')
+        fc1 = tf.concat([conv3, input_dict['obs']['pose']], 1)
         fc2 = tf.layers.dense(fc1, 128, activation=tf.nn.relu, name='fc2')
         fc3 = tf.layers.dense(fc2, 32, activation=tf.nn.relu, name='fc3')
         out = tf.layers.dense(fc3, 4, activation=tf.nn.tanh, name='out')
-        print('Total operations:{}'.format(len(tf.get_default_graph().get_operations())))
+        # print('Total operations:{}'.format(len(tf.get_default_graph().get_operations())))
         return out, fc3
 
 
@@ -76,21 +51,21 @@ tune.registry.register_env('robot_gym_env', env_creator)
 def on_episode_start(info):
     episode = info['episode']
     print('episode {} started'.format(episode.episode_id))
-    episode.user_data['pole_angles'] = []
+    # episode.user_data['robot_pose'] = []
 
 
 def on_episode_step(info):
     episode = info['episode']
-    pole_angle = abs(episode.last_observation_for()[2])
-    episode.user_data['pole_angles'].append(pole_angle)
+    robot_pose = episode.last_observation_for()[-3:]
+    # episode.user_data['robot_pose'].append(robot_pose)
 
 
 def on_episode_end(info):
     episode = info['episode']
-    pole_angle = np.mean(episode.user_data['pole_angles'])
-    print('episode {} ended with length {} and pole angles {}'.format(
-        episode.episode_id, episode.length, pole_angle))
-    episode.custom_metrics['pole_angle'] = pole_angle
+    # pole_angle = np.mean(episode.user_data['robot_pose'])
+    print('episode {} ended with length {}'.format(
+        episode.episode_id, episode.length))
+    # episode.custom_metrics['robot_pose'] = pole_angle
 
 
 def on_sample_end(info):
@@ -113,13 +88,13 @@ def train(config, reporter):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--num-iters', type=int, default=2000)
+    parser.add_argument('--mode', type=str, default='train')
     args = parser.parse_args()
     ray.init()
 
     agent = ppo.PPOAgent(env='robot_gym_env', config={
-        'num_workers': 0,
-        'simple_optimizer': True,
+        'num_workers': 2,
+        'simple_optimizer': False,
         'callbacks': {
             'on_episode_start': tune.function(on_episode_start),
             'on_episode_step': tune.function(on_episode_step),
@@ -140,19 +115,19 @@ if __name__ == '__main__':
         'observation_filter': 'NoFilter',
         'vf_share_layers': True,
         'num_gpus': 1,
-        'num_gpus_per_worker': 1,
-        'sample_batch_size': 50,
-        'train_batch_size': 50,
-        'sgd_minibatch_size': 32,
-        'num_sgd_iter': 2,
+        'num_gpus_per_worker': 0.5,
+        'sample_batch_size': 100,
+        'train_batch_size': 200,
+        'sgd_minibatch_size': 5,
+        'num_sgd_iter': 10,
     })
     # conf = ppo.DEFAULT_CONFIG.copy()
     configuration = {
         'paint': {
             'run': train,
-            'stop': {
-                'training_iteration': args.num_iters,
-            },
+            # 'stop': {
+            #     'training_iteration': args.num_iters,
+            # },
             'trial_resources': {
                 'cpu': 1,
                 'gpu': 1,
@@ -182,17 +157,27 @@ if __name__ == '__main__':
                 'vf_share_layers': True,
                 'num_gpus': 1,
                 'num_gpus_per_worker': 1,
-                'sample_batch_size': 50,
-                'train_batch_size': 50,
-                'sgd_minibatch_size': 32,
-                'num_sgd_iter': 2,
+                'sample_batch_size': 100,
+                'train_batch_size': 200,
+                'sgd_minibatch_size': 5,
+                'num_sgd_iter': 10,
             },
         }
     }
-
-    for _ in range(100):
-        res = agent.train()
-        print(pretty_print(res))
+    if args.mode == 'train':
+        while True:
+            res = agent.train()
+            print(pretty_print(res))
+            if res['episode_reward_max'] >= 5000 and res['episode_reward_mean'] >= 2000:
+                model_path = agent.save()
+                print('max rewards already reached 50%, stop training, model saved at:{}'.format(model_path))
+                break
+            else:
+                print('maximum reward currently:{}'.format(res['episode_reward_max']))
+    else:
+        agent.restore(args.path)
+        # try to use the model
+        # try the rollout function
 
     # trials = tune.run_experiments(configuration)
 
