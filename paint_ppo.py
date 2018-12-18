@@ -27,15 +27,35 @@ class PaintModel(Model):
         pass
 
     def _build_layers_v2(self, input_dict, num_outputs, options):
-        tf.reset_default_graph()
-        scaled_images = tf.cast(input_dict['obs']['image'], tf.float32) / 224.
-        output_tensor = tf.import_graph_def(pretrained_graph, input_map={'input_tensor': scaled_images},
-                                            return_elements=['resnet_model/Relu_48:0'])[0]
-        # output_tensor = resnet_graph.get_tensor_by_name('resnet_model/Relu_48:0')
+        # with tf.variable_scope('imported_net_scope', reuse=tf.AUTO_REUSE):
+        #     print('Total operations:{}'.format(len(tf.get_default_graph().get_operations())))
+        #     scaled_images = tf.cast(input_dict['obs']['image'], tf.float32) / 224.
+        #     output_tensor = tf.import_graph_def(pretrained_graph, input_map={'input_tensor': scaled_images},
+        #                                         return_elements=['resnet_model/Relu_48:0'])[0]
+        #     # output_tensor = resnet_graph.get_tensor_by_name('resnet_model/Relu_48:0')
+        #     print('Total operations:{}'.format(len(tf.get_default_graph().get_operations())))
+        #     output_tensor = flatten(output_tensor)
+        #     # fc1 = tf.layers.dense(conv3, 512, activation=tf.nn.relu, name='fc1')
+        #     fc1 = tf.concat([output_tensor, input_dict['obs']['pose']], 1)
+        #     fc2 = tf.layers.dense(fc1, 128, activation=tf.nn.relu, name='fc2')
+        #     fc3 = tf.layers.dense(fc2, 32, activation=tf.nn.relu, name='fc3')
+        #     out = tf.layers.dense(fc3, 4, activation=tf.nn.tanh, name='out')
+        #     print('Total operations:{}'.format(len(tf.get_default_graph().get_operations())))
+        #     return out, fc3
         print('Total operations:{}'.format(len(tf.get_default_graph().get_operations())))
-        output_tensor = flatten(output_tensor)
-        # fc1 = tf.layers.dense(conv3, 512, activation=tf.nn.relu, name='fc1')
-        fc1 = tf.concat([output_tensor, input_dict['obs']['pose']], 1)
+        scaled_images = tf.cast(input_dict['obs']['image'], tf.float32) / 255.
+        conv1 = tf.layers.conv2d(inputs=scaled_images, filters=32, strides=(4, 4), kernel_size=(8, 8), padding='VALID',
+                                 activation=tf.nn.relu, name='conv1')
+
+        conv2 = tf.layers.conv2d(inputs=conv1, filters=64, strides=(2, 2), kernel_size=(4, 4), padding='VALID',
+                                 activation=tf.nn.relu, name='conv2')
+
+        conv3 = tf.layers.conv2d(inputs=conv2, filters=64, strides=(1, 1), kernel_size=(3, 3), padding='VALID',
+                                 activation=tf.nn.relu, name='conv3')
+
+        conv3 = flatten(conv3)
+        fc1 = tf.layers.dense(conv3, 512, activation=tf.nn.relu, name='fc1')
+        fc1 = tf.concat([fc1, input_dict['obs']['pose']], 1)
         fc2 = tf.layers.dense(fc1, 128, activation=tf.nn.relu, name='fc2')
         fc3 = tf.layers.dense(fc2, 32, activation=tf.nn.relu, name='fc3')
         out = tf.layers.dense(fc3, 4, activation=tf.nn.tanh, name='out')
@@ -98,7 +118,8 @@ if __name__ == '__main__':
     ray.init()
 
     agent = ppo.PPOAgent(env='robot_gym_env', config={
-        'num_workers': 1,
+        'num_workers': 0,
+        'simple_optimizer': True,
         'callbacks': {
             'on_episode_start': tune.function(on_episode_start),
             'on_episode_step': tune.function(on_episode_step),
@@ -123,7 +144,6 @@ if __name__ == '__main__':
         'sample_batch_size': 50,
         'train_batch_size': 50,
         'sgd_minibatch_size': 32,
-        # what exactly is this?
         'num_sgd_iter': 2,
     })
     # conf = ppo.DEFAULT_CONFIG.copy()
@@ -156,6 +176,8 @@ if __name__ == '__main__':
                     'renders': False,
                     'render_video': False,
                 },
+                'num_workers': 0,
+                'simple_optimizer': True,
                 'observation_filter': 'NoFilter',
                 'vf_share_layers': True,
                 'num_gpus': 1,
@@ -163,7 +185,6 @@ if __name__ == '__main__':
                 'sample_batch_size': 50,
                 'train_batch_size': 50,
                 'sgd_minibatch_size': 32,
-                # what exactly is this?
                 'num_sgd_iter': 2,
             },
         }
