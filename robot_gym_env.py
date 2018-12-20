@@ -108,6 +108,7 @@ class RobotGymEnv(gym.Env):
 
         self._last_status = 0
         self._paint_side = p.Side.front
+        # monotone, multi-color should not be used
         self._paint_color = (1, 0, 0)
 
         self._setup_bullet_params()
@@ -138,12 +139,12 @@ class RobotGymEnv(gym.Env):
 
     def _load_environment(self):
         p.loadURDF('plane.urdf', (0, 0, 0), useFixedBase=True)
-        self._part_id = p.load_part(os.path.join(self._urdf_root, 'urdf', 'painting', 'door.urdf'),
+        self._part_id = p.load_part(self._renders, os.path.join(self._urdf_root, 'urdf', 'painting', 'door.urdf'),
                                     (-0.4, -0.6, 0.25), useFixedBase=True)
         texture_width, texture_height = p.get_texture_size(self._part_id)
         RobotGymEnv.observation_space = spaces.Dict({
-            'pose': spaces.Box(np.array((-1, -1, -1)), np.array((1, 1, 1)), dtype=np.float32),
-            'image': spaces.Box(0, 255, [texture_width, texture_height, 3], dtype=np.uint8)})
+            'pose': spaces.Box(np.array((-1, -1)), np.array((1, 1)), dtype=np.float32),
+            'image': spaces.Box(0, 255, [texture_width, texture_height, 1], dtype=np.uint8)})
         self._start_points = p.get_start_points(self._part_id, p.Side.front)
         self.robot = Robot(self._step_manager, 'kuka_iiwa/model_free_base.urdf', pos=(0.2, -0.2, 0),
                            orn=p.getQuaternionFromEuler((0, 0, math.pi*3/2)), render=self._renders)
@@ -157,11 +158,14 @@ class RobotGymEnv(gym.Env):
 
     def _augmented_observation(self):
         observation = {}
-        pose, orn_norm = self.robot.get_observation()
+        pose, _ = self.robot.get_observation()
         image = p.get_texture_image(self._part_id)
         # image.show()
-        observation['pose'] = pose
-        observation['image'] = image
+        for i, v in enumerate(self._paint_color):
+            if v:
+                observation['image'] = np.asarray(image)[:, :, i]
+                break
+        observation['pose'] = p.get_normalized_pose(self._part_id, pose)
         return observation
 
     def _reward(self):

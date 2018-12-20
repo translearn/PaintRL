@@ -33,6 +33,14 @@ def _get_color(color):
     return [np.uint8(i * 255) for i in color]
 
 
+def _clip_to_01(v):
+    if v < 0:
+        return 0
+    if v > 1:
+        return 1
+    return v
+
+
 class Side(enum.Enum):
     """First define only two sides for each part"""
     front = 1
@@ -175,7 +183,7 @@ class BarycentricInterpolator:
 class Part:
     HOOK_DISTANCE_TO_PART = 0.1
     # Color to mark irrelevant pixels, used for preprocessing and calculate rewards
-    IRRELEVANT_COLOR = (1, 1, 1)
+    IRRELEVANT_COLOR = (1, 0, 0)
     FRONT_COLOR = (0.75, 0.75, 0.75)
     BACK_COLOR = (0, 1, 0)
     # Place holder in KD-tree, no point can have such a coordinate
@@ -184,7 +192,7 @@ class Part:
     Store the loaded urdf cache and its correspondent change texture parameters,
     extract the pixels on the part to be painted.
     """
-    def __init__(self, urdf_id=-1):
+    def __init__(self, urdf_id=-1, render=True):
         self.urdf_id = urdf_id
         self.uv_map = None
         self.vertices = None
@@ -196,7 +204,9 @@ class Part:
         self._start_points = {}
         self.profile = {}
         self.principle_axes = None
+        self.ranges = None
         self.front_normal = None
+        self._render = render
 
     def _get_texel(self, i, j):
         return min((i + j * self.texture_width) * 3, len(self.texture_pixels) - 1)
@@ -257,18 +267,23 @@ class Part:
     def _label_part(self):
         # preprocessing all irrelevant pixels
         target_pixels = [(i, j) for i in range(self.texture_width) for j in range(self.texture_height)]
-        for side in self.profile:
-            target_pixels = [i for i in target_pixels if i not in self.profile[side]]
-        irr_color = _get_color(Part.IRRELEVANT_COLOR)
-        front_color = _get_color(Part.FRONT_COLOR)
-        back_color = _get_color(Part.BACK_COLOR)
-        for point in target_pixels:
-            self._change_pixel(irr_color, *point)
-        for point in self.profile[Side.back]:
-            self._change_pixel(back_color, *point)
-        for point in self.profile[Side.front]:
-            self._change_pixel(front_color, *point)
+        if self._render:
+            for side in self.profile:
+                target_pixels = [i for i in target_pixels if i not in self.profile[side]]
+            irr_color = _get_color(Part.IRRELEVANT_COLOR)
+            front_color = _get_color(Part.FRONT_COLOR)
+            back_color = _get_color(Part.BACK_COLOR)
+            for point in target_pixels:
+                self._change_pixel(irr_color, *point)
+            for point in self.profile[Side.back]:
+                self._change_pixel(back_color, *point)
+            for point in self.profile[Side.front]:
+                self._change_pixel(front_color, *point)
         # _get_texture_image(self.texture_pixels, self.texture_width, self.texture_height).show()
+        else:
+            color = _get_color((0, 0, 0))
+            for point in target_pixels:
+                self._change_pixel(color, *point)
 
     def _build_kd_tree(self):
         side_label = {}
@@ -343,6 +358,9 @@ class Part:
     def get_start_points(self, side):
         return self._start_points[side]
 
+    def set_ranges_along_principle(self, ranges):
+        self.ranges = ranges
+
     def get_guided_point(self, point, normal, delta_axis1, delta_axis2):
         point = list(point)
         point[self.principle_axes[0]] += delta_axis1
@@ -351,11 +369,19 @@ class Part:
         end_point = [a + b for a, b in zip(point, normal)]
         result = rayTestBatch([point], [end_point])
         if not result[0][0] == self.urdf_id:
-            # print('Error in Ray Test!!!')
+            if self._render:
+                print('Error in Ray Test!!!')
             return None, normal
         surface_point = result[0][3]
         pos, orn = self._get_hook_point(surface_point, current_side)
         return pos, orn if orn else normal
+
+    def get_normalized_pose(self, pose):
+        axis1_real = pose[self.principle_axes[0]]
+        axis2_real = pose[self.principle_axes[1]]
+        axis1_in_range = (axis1_real - self.ranges[0][0]) / (self.ranges[0][1] - self.ranges[0][0])
+        axis2_in_range = (axis2_real - self.ranges[1][0]) / (self.ranges[1][1] - self.ranges[1][0])
+        return _clip_to_01(axis1_in_range), _clip_to_01(axis2_in_range)
 
 
 def _get_abs_file_path(root_path, path):
@@ -492,8 +518,9 @@ def _get_coordinate_range(v_array, col_num):
     return max(col) - min(col)
 
 
-def _get_corner_points(v_array, principle_axes):
+def _get_corner_points_ranges(v_array, principle_axes):
     points = []
+    ranges = []
     v_corner = sorted(v_array, key=lambda tup: tup[principle_axes[0]] + tup[principle_axes[1]])
     v_corner_0 = list(v_corner[0])
     v_corner_0[principle_axes[0]] += MIN_PAINT_DIAMETER
@@ -512,7 +539,11 @@ def _get_corner_points(v_array, principle_axes):
     v_counter_corner_m1[principle_axes[0]] -= MIN_PAINT_DIAMETER
     v_counter_corner_m1[principle_axes[1]] += MIN_PAINT_DIAMETER
     points.append(v_counter_corner_m1)
-    return points
+    v_range_1 = sorted(v_array, key=lambda tup: tup[principle_axes[0]])
+    v_range_2 = sorted(v_array, key=lambda tup: tup[principle_axes[1]])
+    ranges.append([v_range_1[0][principle_axes[0]], v_range_1[-1][principle_axes[0]]])
+    ranges.append([v_range_2[0][principle_axes[1]], v_range_2[-1][principle_axes[1]]])
+    return points, ranges
 
 
 def _get_principle_axes(v_array):
@@ -533,19 +564,20 @@ def _cache_obj(urdf_obj, obj_path):
         urdf_obj.vertices = global_v_array
         urdf_obj.uv_map = uv_map
         urdf_obj.preprocess()
-        corner_points = _get_corner_points(global_v_array, urdf_obj.principle_axes)
+        corner_points, ranges = _get_corner_points_ranges(global_v_array, urdf_obj.principle_axes)
         urdf_obj.set_start_points(corner_points)
+        urdf_obj.set_ranges_along_principle(ranges)
 
 
 def load_part(*args, **kwargs):
     # Params same as loadURDF
     try:
-        path = args[0]
-        u_id = loadURDF(*args, **kwargs)
+        path = args[1]
+        u_id = loadURDF(*args[1:], **kwargs)
         obj_file_path, texture_file_path = _retrieve_related_file_path(path)
         # Texture file exists, prepare for texture manipulation
         if texture_file_path:
-            part = Part(u_id)
+            part = Part(u_id, args[0])
             _urdf_cache[u_id] = part
             _cache_texture(part, obj_file_path, texture_file_path)
         return u_id
@@ -588,3 +620,7 @@ def get_guided_point(urdf_id, point, normal, delta_axis1, delta_axis2):
 
 def get_texture_size(urdf_id):
     return _urdf_cache[urdf_id].get_texture_size()
+
+
+def get_normalized_pose(urdf_id, pose):
+    return _urdf_cache[urdf_id].get_normalized_pose(pose)
