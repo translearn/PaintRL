@@ -1,7 +1,6 @@
 import os
 import argparse
 import tensorflow as tf
-import numpy as np
 import ray
 import ray.tune as tune
 from ray.tune.logger import pretty_print
@@ -17,9 +16,9 @@ class PaintModel(Model):
         pass
 
     def _build_layers_v2(self, input_dict, num_outputs, options):
-        # print('Total operations:{}'.format(len(tf.get_default_graph().get_operations())))
         scaled_images = tf.cast(input_dict['obs']['image'], tf.float32) / 255.
-        conv1 = tf.layers.conv2d(inputs=scaled_images, filters=32, strides=(4, 4), kernel_size=(8, 8), padding='VALID',
+        pooling = tf.layers.average_pooling2d(scaled_images, pool_size=(2, 2), strides=(2, 2))
+        conv1 = tf.layers.conv2d(inputs=pooling, filters=32, strides=(4, 4), kernel_size=(8, 8), padding='VALID',
                                  activation=tf.nn.relu, name='conv1')
 
         conv2 = tf.layers.conv2d(inputs=conv1, filters=64, strides=(2, 2), kernel_size=(4, 4), padding='VALID',
@@ -29,13 +28,11 @@ class PaintModel(Model):
                                  activation=tf.nn.relu, name='conv3')
 
         conv3 = flatten(conv3)
-        # fc1 = tf.layers.dense(conv3, 512, activation=tf.nn.relu, name='fc1')
-        fc1 = tf.concat([conv3, input_dict['obs']['pose']], 1)
+        fc1 = tf.layers.dense(conv3, 254, activation=tf.nn.relu, name='fc1')
+        fc1 = tf.concat([fc1, input_dict['obs']['pose']], 1)
         fc2 = tf.layers.dense(fc1, 128, activation=tf.nn.relu, name='fc2')
-        fc3 = tf.layers.dense(fc2, 32, activation=tf.nn.relu, name='fc3')
-        out = tf.layers.dense(fc3, 4, activation=tf.nn.tanh, name='out')
-        # print('Total operations:{}'.format(len(tf.get_default_graph().get_operations())))
-        return out, fc3
+        out = tf.layers.dense(fc2, 4, activation=tf.nn.tanh, name='out')
+        return out, fc2
 
 
 def env_creator(env_config):
@@ -56,7 +53,7 @@ def on_episode_start(info):
 
 def on_episode_step(info):
     episode = info['episode']
-    robot_pose = episode.last_observation_for()[-3:]
+    robot_pose = episode.last_observation_for()[-2:]
     # episode.user_data['robot_pose'].append(robot_pose)
 
 
@@ -97,7 +94,7 @@ if __name__ == '__main__':
         'simple_optimizer': False,
         'callbacks': {
             'on_episode_start': tune.function(on_episode_start),
-            'on_episode_step': tune.function(on_episode_step),
+            # 'on_episode_step': tune.function(on_episode_step),
             'on_episode_end': tune.function(on_episode_end),
             'on_sample_end': tune.function(on_sample_end),
             # wait for version 0.7 release
@@ -112,14 +109,15 @@ if __name__ == '__main__':
             'renders': False,
             'render_video': False,
         },
+        'batch_mode': 'complete_episodes',
         'observation_filter': 'NoFilter',
         'vf_share_layers': True,
         'num_gpus': 1,
         'num_gpus_per_worker': 0.5,
-        'sample_batch_size': 100,
-        'train_batch_size': 200,
-        'sgd_minibatch_size': 5,
-        'num_sgd_iter': 10,
+        'sample_batch_size': 200,
+        'train_batch_size': 400,
+        'sgd_minibatch_size': 16,
+        'num_sgd_iter': 30,
     })
     # conf = ppo.DEFAULT_CONFIG.copy()
     configuration = {
