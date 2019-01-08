@@ -570,7 +570,6 @@ def _cache_obj(urdf_obj, obj_path):
 
 
 def load_part(*args, **kwargs):
-    # Params same as loadURDF
     try:
         path = args[1]
         u_id = loadURDF(*args[1:], **kwargs)
