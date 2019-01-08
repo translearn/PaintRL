@@ -7,6 +7,7 @@ from ray.tune.logger import pretty_print
 import ray.rllib.agents.ppo as ppo
 from ray.rllib.models import ModelCatalog, Model
 from ray.rllib.models.misc import flatten
+from ray.rllib.rollout import rollout
 from PaintRLEnv.robot_gym_env import RobotGymEnv
 
 
@@ -86,6 +87,7 @@ def train(config, reporter):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--mode', type=str, default='train')
+    parser.add_argument('--path', type=str, default='/home/pyang/ray_results/')
     args = parser.parse_args()
     ray.init()
 
@@ -114,6 +116,8 @@ if __name__ == '__main__':
         'vf_share_layers': True,
         'num_gpus': 1,
         'num_gpus_per_worker': 0.5,
+        'lr_schedule': [[0, 1e-3],
+                        [1e7, 1e-12], ],
         'sample_batch_size': 200,
         'train_batch_size': 400,
         'sgd_minibatch_size': 16,
@@ -163,9 +167,14 @@ if __name__ == '__main__':
         }
     }
     if args.mode == 'train':
+        counter = 1
         while True:
+            counter += 1
             res = agent.train()
             print(pretty_print(res))
+            if counter % 1000 == 0:
+                model_path = agent.save()
+                print('model saved at:{} in step {}'.format(model_path, counter))
             if res['episode_reward_max'] >= 5000 and res['episode_reward_mean'] >= 2000:
                 model_path = agent.save()
                 print('max rewards already reached 50%, stop training, model saved at:{}'.format(model_path))
@@ -176,6 +185,7 @@ if __name__ == '__main__':
         agent.restore(args.path)
         # try to use the model
         # try the rollout function
+        rollout(agent, 'robot_gym_env', 200)
 
     # trials = tune.run_experiments(configuration)
 
