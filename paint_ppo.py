@@ -86,8 +86,7 @@ if __name__ == '__main__':
             # 'on_episode_step': tune.function(on_episode_step),
             'on_episode_end': tune.function(on_episode_end),
             'on_sample_end': tune.function(on_sample_end),
-            # wait for version 0.7 release
-            # 'on_train_result': tune.function(on_train_result),
+            'on_train_result': tune.function(on_train_result),
         },
         'model': {
             'custom_model': 'paint_model',
@@ -103,11 +102,11 @@ if __name__ == '__main__':
         'vf_share_layers': True,
         'num_gpus': 1,
         'num_gpus_per_worker': 0.5,
-        'lr_schedule': [[0, 1e-3],
-                        [1e7, 1e-12], ],
+        # 'lr_schedule': [[0, 1e-3],
+        #                 [1e7, 1e-12], ],
         'sample_batch_size': 200,
-        'train_batch_size': 400,
-        'sgd_minibatch_size': 16,
+        'train_batch_size': 4000,
+        'sgd_minibatch_size': 128,
         'num_sgd_iter': 30,
     })
     # conf = ppo.DEFAULT_CONFIG.copy()
@@ -159,7 +158,7 @@ if __name__ == '__main__':
             counter += 1
             res = agent.train()
             print(pretty_print(res))
-            if counter % 1000 == 0:
+            if counter % 500 == 0:
                 model_path = agent.save()
                 print('model saved at:{} in step {}'.format(model_path, counter))
             if res['episode_reward_max'] >= 5000 and res['episode_reward_mean'] >= 2000:
