@@ -105,8 +105,8 @@ if __name__ == '__main__':
         # 'lr_schedule': [[0, 1e-3],
         #                 [1e7, 1e-12], ],
         'sample_batch_size': 200,
-        'train_batch_size': 4000,
-        'sgd_minibatch_size': 128,
+        'train_batch_size': 800,
+        'sgd_minibatch_size': 32,
         'num_sgd_iter': 30,
     })
     # conf = ppo.DEFAULT_CONFIG.copy()
