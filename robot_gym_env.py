@@ -99,7 +99,7 @@ class RobotGymEnv(gym.Env):
     reward_range = (-1e5, 1e5)
     action_space = spaces.Box(np.array((-1, -1)), np.array((1, 1)), dtype=np.float32)
     # will be setup after the part loaded and the size of the texture is clear
-    observation_space = None
+    observation_space = spaces.Box(low=-1.0, high=1.0, shape=(20, ), dtype=np.float64)
 
     def __init__(self, urdf_root, renders=False, render_video=False):
         self._renders = renders
@@ -141,10 +141,6 @@ class RobotGymEnv(gym.Env):
         p.loadURDF('plane.urdf', (0, 0, 0), useFixedBase=True)
         self._part_id = p.load_part(self._renders, os.path.join(self._urdf_root, 'urdf', 'painting', 'door.urdf'),
                                     (-0.4, -0.6, 0.25), useFixedBase=True)
-        texture_width, texture_height = p.get_texture_size(self._part_id)
-        RobotGymEnv.observation_space = spaces.Dict({
-            'pose': spaces.Box(np.array((-1, -1)), np.array((1, 1)), dtype=np.float32),
-            'image': spaces.Box(0, 255, [texture_width, texture_height, 1], dtype=np.uint8)})
         self._start_points = p.get_start_points(self._part_id, p.Side.front)
         self.robot = Robot(self._step_manager, 'kuka_iiwa/model_free_base.urdf', pos=(0.2, -0.2, 0),
                            orn=p.getQuaternionFromEuler((0, 0, math.pi*3/2)), render=self._renders)
@@ -157,16 +153,10 @@ class RobotGymEnv(gym.Env):
         return finished or robot_termination
 
     def _augmented_observation(self):
-        observation = {}
         pose, _ = self.robot.get_observation()
-        image = p.get_texture_image(self._part_id)
-        # image.show()
-        for i, v in enumerate(self._paint_color):
-            if v:
-                observation['image'] = np.asarray(image)[:, :, i]
-                break
-        observation['pose'] = p.get_normalized_pose(self._part_id, pose)
-        return observation
+        status = p.get_partial_observation(self._part_id, self._paint_side, pose, self._paint_color)
+        normalized_pose = p.get_normalized_pose(self._part_id, pose)
+        return list(status.values()) + list(normalized_pose)
 
     def _reward(self):
         current_status = p.get_job_status(self._part_id, self._paint_side, self._paint_color)
@@ -179,7 +169,6 @@ class RobotGymEnv(gym.Env):
         reward = self._reward()
         done = self._termination()
         observation = self._augmented_observation()
-
         return observation, reward, done, {}
 
     def reset(self):

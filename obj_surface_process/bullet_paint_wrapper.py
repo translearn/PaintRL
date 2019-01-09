@@ -119,15 +119,19 @@ class BarycentricInterpolator:
         pixels.append(uva)
         pixels.append(uvb)
         pixels.append(uvc)
+        pixel_dict = {uva: self._a, uvb: self._b, uvc: self._c}
         # Here make a 2D triangle, use barycentric coordinate to judge if pixels inside the triangle
         uv_bary = BarycentricInterpolator(self._uva, self._uvb, self._uvc)
         x_min, x_max = min(uva[0], uvb[0], uvc[0]), max(uva[0], uvb[0], uvc[0])
         y_min, y_max = min(uva[1], uvb[1], uvc[1]), max(uva[1], uvb[1], uvc[1])
         for u in range(x_min, x_max + 1):
             for v in range(y_min, y_max + 1):
-                if uv_bary.is_inside_triangle((u / width, v / height)):
+                u_relative, v_relative = u / width, v / height
+                if uv_bary.is_inside_triangle((u_relative, v_relative)):
+                    p = uv_bary._get_bary_coordinate((u_relative, v_relative))
+                    pixel_dict[(u, v)] = self.get_coordinate_in_barycentric(p)
                     pixels.append((u, v))
-        return pixels
+        return pixels, pixel_dict
 
     def set_face_normal(self, vn, front_normal):
         self._vn = vn
@@ -140,6 +144,10 @@ class BarycentricInterpolator:
 
     def get_side(self):
         return self._side
+
+    def get_coordinate_in_barycentric(self, b_coordinate):
+        bary_a, bary_b, bary_c = b_coordinate
+        return tuple(np.dot(bary_a, self._a) + np.dot(bary_b, self._b) + np.dot(bary_c, self._c))
 
     def get_texel(self, point, width, height):
         bary_a, bary_b, bary_c = self._get_bary_coordinate(point)
@@ -188,6 +196,8 @@ class Part:
     BACK_COLOR = (0, 1, 0)
     # Place holder in KD-tree, no point can have such a coordinate
     IRRELEVANT_POSE = (10, 10, 10)
+    # Distance weight factor, 0 means no distance weight
+    DISTANCE_FACTOR = 1
     """
     Store the loaded urdf cache and its correspondent change texture parameters,
     extract the pixels on the part to be painted.
@@ -203,6 +213,7 @@ class Part:
         self.texture_pixels = None
         self._start_points = {}
         self.profile = {}
+        self.profile_dicts = {}
         self.principle_axes = None
         self.ranges = None
         self.front_normal = None
@@ -310,12 +321,14 @@ class Part:
         for _, p_map in self.uv_map.items():
             for bary in p_map:
                 if bary.get_side():
-                    pixels = bary.get_uv_pixels(self.texture_width, self.texture_height)
+                    pixels, pixel_dict = bary.get_uv_pixels(self.texture_width, self.texture_height)
                     # bary.add_debug_info()
                     side = bary.get_side()
                     if side not in self.profile:
                         self.profile[side] = []
+                        self.profile_dicts[side] = {}
                     self.profile[side].extend(pixels)
+                    self.profile_dicts[side].update(pixel_dict)
         if self.profile:
             invalid_side = None
             for side in self.profile:
@@ -324,19 +337,23 @@ class Part:
                     continue
                 self.profile[side] = list(set(self.profile[side]))
             del self.profile[invalid_side]
+            del self.profile_dicts[invalid_side]
             self._label_part()
             self._build_kd_tree()
 
     def get_texture_size(self):
         return self.texture_width, self.texture_height
 
+    def _get_pixel_status(self, pixel, color):
+        texel = self._get_texel(*pixel)
+        texel_color = self.texture_pixels[texel:texel + 3]
+        return color == texel_color
+
     def get_job_status(self, side, color):
         color = _get_color(color)
         finished_counter = 0
         for pixel in self.profile[side]:
-            texel = self._get_texel(*pixel)
-            texel_color = self.texture_pixels[texel:texel + 3]
-            if color == texel_color:
+            if self._get_pixel_status(pixel, color):
                 finished_counter += 1
         return finished_counter
 
@@ -382,6 +399,32 @@ class Part:
         axis1_in_range = (axis1_real - self.ranges[0][0]) / (self.ranges[0][1] - self.ranges[0][0])
         axis2_in_range = (axis2_real - self.ranges[1][0]) / (self.ranges[1][1] - self.ranges[1][0])
         return _clip_to_01(axis1_in_range), _clip_to_01(axis2_in_range)
+
+    def get_partial_observation(self, side, pose, color, sections=18):
+        # 360 / 20 = 18 sections
+        obs = {}
+        result = {}
+        for i in range(sections):
+            obs[i] = 0
+        basis = 2 * np.pi / sections
+        for pixel, coordinate in self.profile_dicts[side].items():
+            relative_x = coordinate[self.principle_axes[0]] - pose[self.principle_axes[0]]
+            relative_y = coordinate[self.principle_axes[1]] - pose[self.principle_axes[1]]
+            if relative_x == 0 and relative_y == 0:
+                continue
+            angle = np.arctan2(relative_y, relative_x)
+            if angle < 0:
+                angle = 2 * np.pi + angle
+            phase = int(angle / basis)
+            # distance weighted point should be redesigned, first without distance weight
+            distance = np.sqrt(relative_x ** 2 + relative_y ** 2)
+            weighted_distance = np.exp(-distance * Part.DISTANCE_FACTOR)
+            if not self._get_pixel_status(pixel, color):
+                obs[phase] += weighted_distance
+        max_factor = max(obs, key=obs.get)
+        for phase in obs:
+            result[phase] = obs[phase] / obs[max_factor]
+        return result
 
 
 def _get_abs_file_path(root_path, path):
@@ -623,3 +666,7 @@ def get_texture_size(urdf_id):
 
 def get_normalized_pose(urdf_id, pose):
     return _urdf_cache[urdf_id].get_normalized_pose(pose)
+
+
+def get_partial_observation(urdf_id, side, pose, color, sections=18):
+    return _urdf_cache[urdf_id].get_partial_observation(side, pose, color, sections)
