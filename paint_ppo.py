@@ -6,7 +6,6 @@ import ray.tune as tune
 from ray.tune.logger import pretty_print
 import ray.rllib.agents.ppo as ppo
 from ray.rllib.models import ModelCatalog, Model
-from ray.rllib.models.misc import flatten
 from ray.rllib.rollout import rollout
 from PaintRLEnv.robot_gym_env import RobotGymEnv
 
@@ -17,23 +16,11 @@ class PaintModel(Model):
         pass
 
     def _build_layers_v2(self, input_dict, num_outputs, options):
-        scaled_images = tf.cast(input_dict['obs']['image'], tf.float32) / 255.
-        pooling = tf.layers.average_pooling2d(scaled_images, pool_size=(2, 2), strides=(2, 2))
-        conv1 = tf.layers.conv2d(inputs=pooling, filters=32, strides=(4, 4), kernel_size=(8, 8), padding='VALID',
-                                 activation=tf.nn.relu, name='conv1')
-
-        conv2 = tf.layers.conv2d(inputs=conv1, filters=64, strides=(2, 2), kernel_size=(4, 4), padding='VALID',
-                                 activation=tf.nn.relu, name='conv2')
-
-        conv3 = tf.layers.conv2d(inputs=conv2, filters=64, strides=(1, 1), kernel_size=(3, 3), padding='VALID',
-                                 activation=tf.nn.relu, name='conv3')
-
-        conv3 = flatten(conv3)
-        fc1 = tf.layers.dense(conv3, 254, activation=tf.nn.relu, name='fc1')
-        fc1 = tf.concat([fc1, input_dict['obs']['pose']], 1)
+        fc1 = tf.layers.dense(input_dict['obs'], 20, activation=tf.nn.relu, name='fc1')
         fc2 = tf.layers.dense(fc1, 128, activation=tf.nn.relu, name='fc2')
-        out = tf.layers.dense(fc2, 4, activation=tf.nn.tanh, name='out')
-        return out, fc2
+        fc3 = tf.layers.dense(fc2, 128, activation=tf.nn.relu, name='fc3')
+        out = tf.layers.dense(fc3, 4, activation=tf.nn.tanh, name='out')
+        return out, fc3
 
 
 def env_creator(env_config):
