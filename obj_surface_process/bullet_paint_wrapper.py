@@ -33,12 +33,12 @@ def _get_color(color):
     return [np.uint8(i * 255) for i in color]
 
 
-def _clip_to_01(v):
+def _clip_to_01_np(v):
     if v < 0:
-        return 0
+        return np.float64(0)
     if v > 1:
-        return 1
-    return v
+        return np.float64(1)
+    return np.float64(v)
 
 
 class Side(enum.Enum):
@@ -211,6 +211,7 @@ class Part:
         self.texture_width = None
         self.texture_height = None
         self.texture_pixels = None
+        self.init_texture = None
         self._start_points = {}
         self.profile = {}
         self.profile_dicts = {}
@@ -231,6 +232,7 @@ class Part:
         except IndexError:
             print('texel is: {}'.format(texel))
             print('color is: {}'.format(color))
+            exit(-1)
 
     def _change_texel_color(self, color, bary, point):
         i, j = bary.get_texel(point, self.texture_width, self.texture_height)
@@ -343,7 +345,11 @@ class Part:
             del self.profile[invalid_side]
             del self.profile_dicts[invalid_side]
             self._label_part()
+            self.init_texture = self.texture_pixels.copy()
             self._build_kd_tree()
+
+    def reset_part(self):
+        self.texture_pixels = self.init_texture.copy()
 
     def get_texture_size(self):
         return self.texture_width, self.texture_height
@@ -402,7 +408,7 @@ class Part:
         axis2_real = pose[self.principle_axes[1]]
         axis1_in_range = (axis1_real - self.ranges[0][0]) / (self.ranges[0][1] - self.ranges[0][0])
         axis2_in_range = (axis2_real - self.ranges[1][0]) / (self.ranges[1][1] - self.ranges[1][0])
-        return _clip_to_01(axis1_in_range), _clip_to_01(axis2_in_range)
+        return _clip_to_01_np(axis1_in_range), _clip_to_01_np(axis2_in_range)
 
     def get_partial_observation(self, side, pose, color, sections=18):
         # 360 / 20 = 18 sections
@@ -674,3 +680,7 @@ def get_normalized_pose(urdf_id, pose):
 
 def get_partial_observation(urdf_id, side, pose, color, sections=18):
     return _urdf_cache[urdf_id].get_partial_observation(side, pose, color, sections)
+
+
+def reset_part(urdf_id):
+    _urdf_cache[urdf_id].reset_part()

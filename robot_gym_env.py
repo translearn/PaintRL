@@ -99,7 +99,7 @@ class RobotGymEnv(gym.Env):
     reward_range = (-1e5, 1e5)
     action_space = spaces.Box(np.array((-1, -1)), np.array((1, 1)), dtype=np.float32)
     # will be setup after the part loaded and the size of the texture is clear
-    observation_space = spaces.Box(low=-1.0, high=1.0, shape=(20, ), dtype=np.float64)
+    observation_space = spaces.Box(low=0, high=1.0, shape=(20, ), dtype=np.float64)
 
     def __init__(self, urdf_root, renders=False, render_video=False):
         self._renders = renders
@@ -172,8 +172,11 @@ class RobotGymEnv(gym.Env):
         return observation, reward, done, {}
 
     def reset(self):
-        start_point = self._start_points[randint(0, len(self._start_points) - 1)]
+        # test if the network overfits and therefore converges quicker
+        # start_point = self._start_points[randint(0, len(self._start_points) - 1)]
+        start_point = self._start_points[0]
         self.robot.reset(start_point)
+        p.reset_part(self._part_id)
         return self._augmented_observation()
 
     def render(self, mode='human'):
@@ -213,6 +216,7 @@ if __name__ == '__main__':
         env.step([0, 1])
         env.step([0, 1])
         env.step([0, 1])
+        env.reset()
         env.step([0, 1])
         env.step([0, 1])
         env.step([0, 1])
