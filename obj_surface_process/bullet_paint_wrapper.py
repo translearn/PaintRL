@@ -224,9 +224,13 @@ class Part:
 
     def _change_pixel(self, color, i, j):
         texel = self._get_texel(i, j)
-        self.texture_pixels[texel] = color[0]
-        self.texture_pixels[texel + 1] = color[1]
-        self.texture_pixels[texel + 2] = color[2]
+        try:
+            self.texture_pixels[texel] = color[0]
+            self.texture_pixels[texel + 1] = color[1]
+            self.texture_pixels[texel + 2] = color[2]
+        except IndexError:
+            print('texel is: {}'.format(texel))
+            print('color is: {}'.format(color))
 
     def _change_texel_color(self, color, bary, point):
         i, j = bary.get_texel(point, self.texture_width, self.texture_height)
