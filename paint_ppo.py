@@ -3,7 +3,7 @@ import argparse
 import tensorflow as tf
 import ray
 import ray.tune as tune
-from ray.tune.logger import pretty_print
+# from ray.tune.logger import pretty_print
 import ray.rllib.agents.ppo as ppo
 from ray.rllib.models import ModelCatalog, Model
 from ray.rllib.rollout import rollout
@@ -79,11 +79,11 @@ if __name__ == '__main__':
     ray.init()
 
     agent = ppo.PPOAgent(env='robot_gym_env', config={
-        'num_workers': 2,
+        'num_workers': 4,
         'simple_optimizer': False,
         'callbacks': {
             'on_episode_start': tune.function(on_episode_start),
-            # 'on_episode_step': tune.function(on_episode_step),
+            'on_episode_step': tune.function(on_episode_step),
             'on_episode_end': tune.function(on_episode_end),
             'on_sample_end': tune.function(on_sample_end),
             'on_train_result': tune.function(on_train_result),
@@ -97,11 +97,11 @@ if __name__ == '__main__':
             'renders': False,
             'render_video': False,
         },
-        'batch_mode': 'complete_episodes',
+        'batch_mode': 'truncate_episodes',
         'observation_filter': 'NoFilter',
         'vf_share_layers': True,
         'num_gpus': 1,
-        'num_gpus_per_worker': 0.5,
+        'num_gpus_per_worker': 0.25,
         # 'lr_schedule': [[0, 1e-3],
         #                 [1e7, 1e-12], ],
         'sample_batch_size': 200,
@@ -127,8 +127,7 @@ if __name__ == '__main__':
                     'on_episode_step': tune.function(on_episode_step),
                     'on_episode_end': tune.function(on_episode_end),
                     'on_sample_end': tune.function(on_sample_end),
-                    # wait for version 0.7 release
-                    # 'on_train_result': tune.function(on_train_result),
+                    'on_train_result': tune.function(on_train_result),
                 },
                 'model': {
                     'custom_model': 'paint_model',
@@ -154,19 +153,22 @@ if __name__ == '__main__':
     }
     if args.mode == 'train':
         counter = 1
+        max_reward = 0
         while True:
             counter += 1
             res = agent.train()
-            print(pretty_print(res))
+            # print(pretty_print(res))
             if counter % 500 == 0:
                 model_path = agent.save()
                 print('model saved at:{} in step {}'.format(model_path, counter))
-            if res['episode_reward_max'] >= 5000 and res['episode_reward_mean'] >= 2000:
+            if max_reward >= 5000 and res['episode_reward_mean'] >= 2000:
                 model_path = agent.save()
                 print('max rewards already reached 50%, stop training, model saved at:{}'.format(model_path))
                 break
             else:
-                print('maximum reward currently:{}'.format(res['episode_reward_max']))
+                if res['episode_reward_max'] > max_reward:
+                    max_reward = res['episode_reward_max']
+                print('maximum reward currently:{}'.format(max_reward))
     else:
         agent.restore(args.path)
         # try to use the model
