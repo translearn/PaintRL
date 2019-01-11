@@ -153,22 +153,19 @@ if __name__ == '__main__':
     }
     if args.mode == 'train':
         counter = 1
-        max_reward = 0
         while True:
             counter += 1
             res = agent.train()
             # print(pretty_print(res))
-            if counter % 500 == 0:
+            if counter % 200 == 0:
                 model_path = agent.save()
                 print('model saved at:{} in step {}'.format(model_path, counter))
-            if max_reward >= 5000 and res['episode_reward_mean'] >= 2000:
+            if res['episode_reward_max'] >= 9000 and res['episode_reward_mean'] >= 7500:
                 model_path = agent.save()
                 print('max rewards already reached 50%, stop training, model saved at:{}'.format(model_path))
                 break
             else:
-                if res['episode_reward_max'] > max_reward:
-                    max_reward = res['episode_reward_max']
-                print('maximum reward currently:{}'.format(max_reward))
+                print('maximum reward currently:{}'.format(res['episode_reward_max']))
     else:
         agent.restore(args.path)
         # try to use the model
