@@ -173,8 +173,8 @@ class RobotGymEnv(gym.Env):
 
     def reset(self):
         # test if the network overfits and therefore converges quicker
-        # start_point = self._start_points[randint(0, len(self._start_points) - 1)]
-        start_point = self._start_points[0]
+        start_point = self._start_points[randint(0, len(self._start_points) - 1)]
+        # start_point = self._start_points[0]
         self.robot.reset(start_point)
         self._last_status = 0
         p.reset_part(self._part_id)
