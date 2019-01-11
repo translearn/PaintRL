@@ -153,7 +153,19 @@ class BarycentricInterpolator:
         bary_a, bary_b, bary_c = self._get_bary_coordinate(point)
         # For efficiency reason, do not check uvs are set or not
         u, v = list(np.dot(bary_a, self._uva) + np.dot(bary_b, self._uvb) + np.dot(bary_c, self._uvc))
-        return _get_pixel_coordinate(u, v, width, height)
+        try:
+            if u < 0 or v < 0:
+                raise ValueError('Texel is minus')
+            return _get_pixel_coordinate(u, v, width, height)
+        except ValueError:
+            print('u and v are:{} and {}'.format(u, v))
+            print('uva, uvb, uvc are:{}, {}, {}'.format(self._uva, self._uvb, self._uvc))
+            print('bary coordinate:({}, {}, {})'.format(bary_a, bary_b, bary_c))
+            exit(-1)
+        # bary_a, bary_b, bary_c = self._get_bary_coordinate(point)
+        # # For efficiency reason, do not check uvs are set or not
+        # u, v = list(np.dot(bary_a, self._uva) + np.dot(bary_b, self._uvb) + np.dot(bary_c, self._uvc))
+        # return _get_pixel_coordinate(u, v, width, height)
 
     def add_debug_info(self):
         # draw the triangle for debug
@@ -225,17 +237,9 @@ class Part:
 
     def _change_pixel(self, color, i, j):
         texel = self._get_texel(i, j)
-        try:
-            if texel < 0:
-                raise IndexError('Texel is minus')
-            self.texture_pixels[texel] = color[0]
-            self.texture_pixels[texel + 1] = color[1]
-            self.texture_pixels[texel + 2] = color[2]
-        except IndexError:
-            print('texel is: {}'.format(texel))
-            print('color is: {}'.format(color))
-            print('i and j are: {} and {}'.format(i, j))
-            exit(-1)
+        self.texture_pixels[texel] = color[0]
+        self.texture_pixels[texel + 1] = color[1]
+        self.texture_pixels[texel + 2] = color[2]
 
     def _change_texel_color(self, color, bary, point):
         i, j = bary.get_texel(point, self.texture_width, self.texture_height)
