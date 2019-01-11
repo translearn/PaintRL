@@ -71,14 +71,18 @@ def train(config, reporter):
         reporter(**result)
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', type=str, default='train')
-    parser.add_argument('--path', type=str, default='/home/pyang/ray_results/')
-    args = parser.parse_args()
-    ray.init()
+def make_ppo_env(is_train=True):
+    env = {
+        'urdf_root': urdf_root,
+        'with_robot': False,
+        'renders': False,
+        'render_video': False,
+    }
 
-    agent = ppo.PPOAgent(env='robot_gym_env', config={
+    if not is_train:
+        env['renders'] = True
+
+    ppo_agent = ppo.PPOAgent(env='robot_gym_env', config={
         'num_workers': 4,
         'simple_optimizer': False,
         'callbacks': {
@@ -92,11 +96,7 @@ if __name__ == '__main__':
             'custom_model': 'paint_model',
             'custom_options': {},  # extra options to pass to your model
         },
-        'env_config': {
-            'urdf_root': urdf_root,
-            'renders': False,
-            'render_video': False,
-        },
+        'env_config': env,
         'batch_mode': 'truncate_episodes',
         'observation_filter': 'NoFilter',
         'vf_share_layers': True,
@@ -109,50 +109,60 @@ if __name__ == '__main__':
         'sgd_minibatch_size': 32,
         'num_sgd_iter': 30,
     })
+    return ppo_agent
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--mode', type=str, default='train')
+    parser.add_argument('--path', type=str, default='/home/pyang/ray_results/')
+    args = parser.parse_args()
+    ray.init()
     # conf = ppo.DEFAULT_CONFIG.copy()
-    configuration = {
-        'paint': {
-            'run': train,
-            # 'stop': {
-            #     'training_iteration': args.num_iters,
-            # },
-            'trial_resources': {
-                'cpu': 1,
-                'gpu': 1,
-            },
-            'num_samples': 1,
-            'config': {
-                'callbacks': {
-                    'on_episode_start': tune.function(on_episode_start),
-                    'on_episode_step': tune.function(on_episode_step),
-                    'on_episode_end': tune.function(on_episode_end),
-                    'on_sample_end': tune.function(on_sample_end),
-                    'on_train_result': tune.function(on_train_result),
-                },
-                'model': {
-                    'custom_model': 'paint_model',
-                    'custom_options': {},  # extra options to pass to your model
-                },
-                'env_config': {
-                    'urdf_root': urdf_root,
-                    'renders': False,
-                    'render_video': False,
-                },
-                'num_workers': 0,
-                'simple_optimizer': True,
-                'observation_filter': 'NoFilter',
-                'vf_share_layers': True,
-                'num_gpus': 1,
-                'num_gpus_per_worker': 1,
-                'sample_batch_size': 100,
-                'train_batch_size': 200,
-                'sgd_minibatch_size': 5,
-                'num_sgd_iter': 10,
-            },
-        }
-    }
+    # configuration = {
+    #     'paint': {
+    #         'run': train,
+    #         # 'stop': {
+    #         #     'training_iteration': args.num_iters,
+    #         # },
+    #         'trial_resources': {
+    #             'cpu': 1,
+    #             'gpu': 1,
+    #         },
+    #         'num_samples': 1,
+    #         'config': {
+    #             'callbacks': {
+    #                 'on_episode_start': tune.function(on_episode_start),
+    #                 'on_episode_step': tune.function(on_episode_step),
+    #                 'on_episode_end': tune.function(on_episode_end),
+    #                 'on_sample_end': tune.function(on_sample_end),
+    #                 'on_train_result': tune.function(on_train_result),
+    #             },
+    #             'model': {
+    #                 'custom_model': 'paint_model',
+    #                 'custom_options': {},  # extra options to pass to your model
+    #             },
+    #             'env_config': {
+    #                 'urdf_root': urdf_root,
+    #                 'renders': False,
+    #                 'render_video': False,
+    #             },
+    #             'num_workers': 0,
+    #             'simple_optimizer': True,
+    #             'observation_filter': 'NoFilter',
+    #             'vf_share_layers': True,
+    #             'num_gpus': 1,
+    #             'num_gpus_per_worker': 1,
+    #             'sample_batch_size': 100,
+    #             'train_batch_size': 200,
+    #             'sgd_minibatch_size': 5,
+    #             'num_sgd_iter': 10,
+    #         },
+    #     }
+    # }
     if args.mode == 'train':
         counter = 1
+        agent = make_ppo_env()
         while True:
             counter += 1
             res = agent.train()
@@ -167,6 +177,7 @@ if __name__ == '__main__':
             else:
                 print('maximum reward currently:{}'.format(res['episode_reward_max']))
     else:
+        agent = make_ppo_env(is_train=False)
         agent.restore(args.path)
         # try to use the model
         # try the rollout function
