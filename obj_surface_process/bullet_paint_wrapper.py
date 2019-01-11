@@ -153,15 +153,15 @@ class BarycentricInterpolator:
         bary_a, bary_b, bary_c = self._get_bary_coordinate(point)
         # For efficiency reason, do not check uvs are set or not
         u, v = list(np.dot(bary_a, self._uva) + np.dot(bary_b, self._uvb) + np.dot(bary_c, self._uvc))
-        try:
-            if u < 0 or v < 0:
-                raise ValueError('Texel is minus')
-            return _get_pixel_coordinate(u, v, width, height)
-        except ValueError:
-            print('u and v are:{} and {}'.format(u, v))
-            print('uva, uvb, uvc are:{}, {}, {}'.format(self._uva, self._uvb, self._uvc))
-            print('bary coordinate:({}, {}, {})'.format(bary_a, bary_b, bary_c))
-            exit(-1)
+        if u < 0 or v < 0:
+            # print('u and v are:{} and {}'.format(u, v))
+            # print('uva, uvb, uvc are:{}, {}, {}'.format(self._uva, self._uvb, self._uvc))
+            # print('bary coordinate:({}, {}, {})'.format(bary_a, bary_b, bary_c))
+            # print('point coordinate:{}'.format(point))
+            # print('triangle coordinate:{}, {}, {}'.format(self._a, self._b, self._c))
+            u = max(u, 0)
+            v = max(v, 0)
+        return _get_pixel_coordinate(u, v, width, height)
         # bary_a, bary_b, bary_c = self._get_bary_coordinate(point)
         # # For efficiency reason, do not check uvs are set or not
         # u, v = list(np.dot(bary_a, self._uva) + np.dot(bary_b, self._uvb) + np.dot(bary_c, self._uvc))
@@ -277,6 +277,9 @@ class Part:
         color = _get_color(color)
         # current_side = _get_side([-i for i in side], self.front_normal)
         current_side = side
+        # no intersection then no paint
+        if not points:
+            return
         nearest_vertices = self.vertices_kd_tree[current_side].query(points, k=1)[1]
         for i, point in enumerate(points):
             bary = self._get_closest_bary(point, nearest_vertices[i], current_side)

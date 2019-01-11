@@ -75,7 +75,7 @@ class Robot:
     IN_POSE_TOLERANCE = 0.02
     NOT_ON_PART_TERMINATE_TIME = 1000
 
-    def __init__(self, step_manager, urdf_path, pos=(0, 0, 0), orn=(0, 0, 0, 1), render=True):
+    def __init__(self, step_manager, urdf_path, pos=(0, 0, 0), orn=(0, 0, 0, 1), with_robot=True):
         self.robot_id = p.loadURDF(urdf_path, pos, orn, useFixedBase=True, flags=p.URDF_USE_SELF_COLLISION)
 
         self._motor_count = 7
@@ -91,7 +91,7 @@ class Robot:
         self._max_velocities = []
         # max velocity, etc. setup
         self._load_robot_info()
-        self._render = render
+        self._with_robot = with_robot
         self._refresh_robot_pose()
 
         self._step_manager = step_manager
@@ -118,7 +118,7 @@ class Robot:
             self._max_velocities.append(joint_info[11])
 
     def _refresh_robot_pose(self, pos=(0, 0, 0), orn=(0, 0, 0, 1)):
-        if self._render:
+        if self._with_robot:
             state = p.getLinkState(self.robot_id, self._end_effector_idx)
             # change center of mess to wrist center.
             diff_in_end_effector = [-i for i in state[2]]
@@ -161,7 +161,7 @@ class Robot:
     def _paint(self, part_id, color, paint_side, show_debug_lines=False):
         beams = self._generate_paint_beams(show_debug_lines)
         results = p.rayTestBatch(*beams)
-        points = [item[3] for item in results]
+        points = [item[3] for item in results if item[0] != -1]
         p.paint(part_id, points, color, paint_side)
 
     def _count_not_on_part(self):
@@ -200,7 +200,7 @@ class Robot:
         return act, poses
 
     def _set_joint_pose(self, joint_angles):
-        if self._render:
+        if self._with_robot:
             for i in range(self._motor_count):
                 p.resetJointState(self.robot_id, i, targetValue=joint_angles[i])
 
@@ -250,7 +250,7 @@ class Robot:
         delta_axis2 = action[1] * Robot.DELTA_Y
         act, poses = self._get_actions(part_id, delta_axis1, delta_axis2)
         for a, pos in zip(act, poses.values()):
-            if self._render:
+            if self._with_robot:
                 p.setJointMotorControlArray(self.robot_id, self._joint_indices, p.POSITION_CONTROL, a,
                                             forces=self._max_forces)
                 # TODO: here the 100 should be refactored to a quantified criteria

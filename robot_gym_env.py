@@ -101,7 +101,8 @@ class RobotGymEnv(gym.Env):
     # will be setup after the part loaded and the size of the texture is clear
     observation_space = spaces.Box(low=0, high=1.0, shape=(20, ), dtype=np.float64)
 
-    def __init__(self, urdf_root, renders=False, render_video=False):
+    def __init__(self, urdf_root, with_robot=True, renders=False, render_video=False):
+        self._with_robot = with_robot
         self._renders = renders
         self._render_video = render_video
         self._urdf_root = urdf_root
@@ -143,7 +144,7 @@ class RobotGymEnv(gym.Env):
                                     (-0.4, -0.6, 0.25), useFixedBase=True)
         self._start_points = p.get_start_points(self._part_id, p.Side.front)
         self.robot = Robot(self._step_manager, 'kuka_iiwa/model_free_base.urdf', pos=(0.2, -0.2, 0),
-                           orn=p.getQuaternionFromEuler((0, 0, math.pi*3/2)), render=self._renders)
+                           orn=p.getQuaternionFromEuler((0, 0, math.pi*3/2)), with_robot=self._with_robot)
         p.setGravity(0, 0, -10)
 
     def _termination(self):
@@ -211,7 +212,8 @@ class RobotGymEnv(gym.Env):
 
 
 if __name__ == '__main__':
-    with RobotGymEnv(os.path.dirname(os.path.realpath(__file__)), renders=True, render_video=False) as env:
+    with RobotGymEnv(os.path.dirname(os.path.realpath(__file__)), with_robot=False,
+                     renders=True, render_video=False) as env:
         for _ in range(10):
             env.step([0, 1])
         env.step([0, 1])
