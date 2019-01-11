@@ -226,12 +226,15 @@ class Part:
     def _change_pixel(self, color, i, j):
         texel = self._get_texel(i, j)
         try:
+            if texel < 0:
+                raise IndexError('Texel is minus')
             self.texture_pixels[texel] = color[0]
             self.texture_pixels[texel + 1] = color[1]
             self.texture_pixels[texel + 2] = color[2]
         except IndexError:
             print('texel is: {}'.format(texel))
             print('color is: {}'.format(color))
+            print('i and j are: {} and {}'.format(i, j))
             exit(-1)
 
     def _change_texel_color(self, color, bary, point):
