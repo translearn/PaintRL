@@ -95,11 +95,12 @@ class RobotGymEnv(gym.Env):
     RENDER_HEIGHT = 720
     RENDER_WIDTH = 960
 
+    EPISODE_MAX_LENGTH = 800
+
     metadata = {'render.modes': ['human', 'rgb_array'], 'video.frames_per_second': 30}
     reward_range = (-1e5, 1e5)
     action_space = spaces.Box(np.array((-1, -1)), np.array((1, 1)), dtype=np.float32)
-    # will be setup after the part loaded and the size of the texture is clear
-    observation_space = spaces.Box(low=0, high=1.0, shape=(20, ), dtype=np.float64)
+    observation_space = spaces.Box(low=0.0, high=1.0, shape=(20, ), dtype=np.float64)
 
     def __init__(self, urdf_root, with_robot=True, renders=False, render_video=False):
         self._with_robot = with_robot
@@ -108,6 +109,7 @@ class RobotGymEnv(gym.Env):
         self._urdf_root = urdf_root
 
         self._last_status = 0
+        self._step_counter = 0
         self._paint_side = p.Side.front
         # monotone, multi-color should not be used
         self._paint_color = (1, 0, 0)
@@ -148,10 +150,12 @@ class RobotGymEnv(gym.Env):
         p.setGravity(0, 0, -10)
 
     def _termination(self):
+        # cut the long episode to save sampling time
+        self._step_counter += 1
         max_possible_point = p.get_job_limit(self._part_id, self._paint_side)
         finished = False if max_possible_point > self._last_status else True
         robot_termination = self.robot.termination_request()
-        return finished or robot_termination
+        return finished or robot_termination or self._step_counter > RobotGymEnv.EPISODE_MAX_LENGTH - 1
 
     def _augmented_observation(self):
         pose, _ = self.robot.get_observation()
@@ -162,6 +166,8 @@ class RobotGymEnv(gym.Env):
     def _reward(self):
         current_status = p.get_job_status(self._part_id, self._paint_side, self._paint_color)
         reward = current_status - self._last_status
+        # Normalize the reward, and consider the time factor
+        reward = reward / 100 - 1
         self._last_status = current_status
         return reward
 
@@ -173,11 +179,12 @@ class RobotGymEnv(gym.Env):
         return observation, reward, done, {}
 
     def reset(self):
-        # test if the network overfits and therefore converges quicker
         start_point = self._start_points[randint(0, len(self._start_points) - 1)]
+        # test if the network overfits and correspondent converges quicker
         # start_point = self._start_points[0]
         self.robot.reset(start_point)
         self._last_status = 0
+        self._step_counter = 0
         p.reset_part(self._part_id)
         return self._augmented_observation()
 

@@ -249,15 +249,17 @@ class Robot:
         delta_axis1 = action[0] * Robot.DELTA_X
         delta_axis2 = action[1] * Robot.DELTA_Y
         act, poses = self._get_actions(part_id, delta_axis1, delta_axis2)
-        for a, pos in zip(act, poses.values()):
+        for a, pos_orn in zip(act, poses.values()):
             if self._with_robot:
                 p.setJointMotorControlArray(self.robot_id, self._joint_indices, p.POSITION_CONTROL, a,
                                             forces=self._max_forces)
                 # TODO: here the 100 should be refactored to a quantified criteria
                 for i in range(100):
                     self._step_manager.step_simulation()
-            self._refresh_robot_pose(*pos)
-            if not self._check_in_position(pos[0]):
+            else:
+                p.addUserDebugLine(self._pose, pos_orn[0], (1, 0, 0))
+            self._refresh_robot_pose(*pos_orn)
+            if not self._check_in_position(pos_orn[0]):
                 # Robot in singularity point or given point is out of working space
                 print('not in pose!')
             self._paint(part_id, color, paint_side)
