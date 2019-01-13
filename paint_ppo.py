@@ -72,6 +72,8 @@ def train(config, reporter):
 
 
 def make_ppo_env(is_train=True):
+    workers = 4
+    gpus_per_worker = 0.25
     env = {
         'urdf_root': urdf_root,
         'with_robot': False,
@@ -81,9 +83,12 @@ def make_ppo_env(is_train=True):
 
     if not is_train:
         env['renders'] = True
+        env['with_robot'] = False
+        workers = 0
+        gpus_per_worker = 1
 
     ppo_agent = ppo.PPOAgent(env='robot_gym_env', config={
-        'num_workers': 4,
+        'num_workers': workers,
         'simple_optimizer': False,
         'callbacks': {
             'on_episode_start': tune.function(on_episode_start),
@@ -101,9 +106,9 @@ def make_ppo_env(is_train=True):
         'observation_filter': 'NoFilter',
         'vf_share_layers': True,
         'num_gpus': 1,
-        'num_gpus_per_worker': 0.25,
-        # 'lr_schedule': [[0, 1e-3],
-        #                 [1e7, 1e-12], ],
+        'num_gpus_per_worker': gpus_per_worker,
+        'lr_schedule': [[0, 1e-3],
+                        [1e5, 1e-7], ],
         'sample_batch_size': 200,
         'train_batch_size': 800,
         'sgd_minibatch_size': 32,
@@ -116,8 +121,48 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--mode', type=str, default='train')
     parser.add_argument('--path', type=str, default='/home/pyang/ray_results/')
+    parser.add_argument('--warm-start', type=bool, default=False)
     args = parser.parse_args()
     ray.init()
+
+    if args.mode == 'train':
+        # counter = 1
+        agent = make_ppo_env()
+        if args.warm_start:
+            agent.restore(args.path)
+            print('warm started from path {}'.format(args.path))
+        for i in range(10000):
+            # counter += 1
+            res = agent.train()
+            # print(pretty_print(res))
+            if i % 200 == 0:
+                model_path = agent.save()
+                print('model saved at:{} in step {}'.format(model_path, i))
+            # if res['episode_reward_max'] >= 9000 and res['episode_reward_mean'] >= 7500:
+            #     model_path = agent.save()
+            #     print('max rewards already reached 50%, stop training, model saved at:{}'.format(model_path))
+            #     break
+            else:
+                print('current training step:{}'.format(i))
+                print('maximum reward currently:{}'.format(res['episode_reward_max']))
+    else:
+        agent = make_ppo_env(is_train=False)
+        agent.restore(args.path)
+        # try to use the model
+        # try the rollout function
+        rollout(agent, 'robot_gym_env', 200)
+
+    # trials = tune.run_experiments(configuration)
+
+    # # verify custom metrics for integration tests
+    # custom_metrics = trials[0].last_result['custom_metrics']
+    # print(custom_metrics)
+    # assert 'pole_angle_mean' in custom_metrics
+    # assert 'pole_angle_min' in custom_metrics
+    # assert 'pole_angle_max' in custom_metrics
+    # assert type(custom_metrics['pole_angle_mean']) is float
+    # assert 'callback_ok' in trials[0].last_result
+
     # conf = ppo.DEFAULT_CONFIG.copy()
     # configuration = {
     #     'paint': {
@@ -160,36 +205,3 @@ if __name__ == '__main__':
     #         },
     #     }
     # }
-    if args.mode == 'train':
-        counter = 1
-        agent = make_ppo_env()
-        while True:
-            counter += 1
-            res = agent.train()
-            # print(pretty_print(res))
-            if counter % 200 == 0:
-                model_path = agent.save()
-                print('model saved at:{} in step {}'.format(model_path, counter))
-            if res['episode_reward_max'] >= 9000 and res['episode_reward_mean'] >= 7500:
-                model_path = agent.save()
-                print('max rewards already reached 50%, stop training, model saved at:{}'.format(model_path))
-                break
-            else:
-                print('maximum reward currently:{}'.format(res['episode_reward_max']))
-    else:
-        agent = make_ppo_env(is_train=False)
-        agent.restore(args.path)
-        # try to use the model
-        # try the rollout function
-        rollout(agent, 'robot_gym_env', 200)
-
-    # trials = tune.run_experiments(configuration)
-
-    # # verify custom metrics for integration tests
-    # custom_metrics = trials[0].last_result['custom_metrics']
-    # print(custom_metrics)
-    # assert 'pole_angle_mean' in custom_metrics
-    # assert 'pole_angle_min' in custom_metrics
-    # assert 'pole_angle_max' in custom_metrics
-    # assert type(custom_metrics['pole_angle_mean']) is float
-    # assert 'callback_ok' in trials[0].last_result
