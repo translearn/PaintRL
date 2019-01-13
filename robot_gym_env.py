@@ -167,7 +167,7 @@ class RobotGymEnv(gym.Env):
         current_status = p.get_job_status(self._part_id, self._paint_side, self._paint_color)
         reward = current_status - self._last_status
         # Normalize the reward, and consider the time factor
-        reward = reward / 100 - 1
+        reward = reward / 100 - 0.2
         self._last_status = current_status
         return reward
 
