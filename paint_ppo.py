@@ -76,7 +76,7 @@ def on_train_result(info):
 #         reporter(**result)
 
 
-def make_ppo_env(is_train=True):
+def make_ppo_env(is_train=True, with_lr_schedule=False):
     workers = 4
     gpus_per_worker = 0.25
     env = {
@@ -91,6 +91,10 @@ def make_ppo_env(is_train=True):
         env['with_robot'] = False
         workers = 0
         gpus_per_worker = 1
+
+    lr_schedule = None
+    if with_lr_schedule:
+        lr_schedule = [[0, 1e-3], [1e5, 1e-7], ]
 
     ppo_agent = ppo.PPOAgent(env='robot_gym_env', config={
         'num_workers': workers,
@@ -112,8 +116,7 @@ def make_ppo_env(is_train=True):
         'vf_share_layers': True,
         'num_gpus': 1,
         'num_gpus_per_worker': gpus_per_worker,
-        'lr_schedule': [[0, 1e-3],
-                        [1e5, 1e-7], ],
+        'lr_schedule': lr_schedule,
         'sample_batch_size': 200,
         'train_batch_size': 800,
         'sgd_minibatch_size': 32,
