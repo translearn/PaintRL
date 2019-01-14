@@ -166,17 +166,23 @@ class RobotGymEnv(gym.Env):
     def _reward(self):
         current_status = p.get_job_status(self._part_id, self._paint_side, self._paint_color)
         reward = current_status - self._last_status
-        # Normalize the reward, and consider the time factor
-        reward = reward / 100 - 0.2
+        # Normalize the reward
+        reward = reward / 100
         self._last_status = current_status
         return reward
+
+    def _penalty(self):
+        time_step_penalty = 0.2
+        off_part_penalty = self.robot.off_part_penalty
+        return time_step_penalty + off_part_penalty
 
     def step(self, action):
         self.robot.apply_action(action, self._part_id, self._paint_color, self._paint_side)
         reward = self._reward()
+        penalty = self._penalty()
         done = self._termination()
         observation = self._augmented_observation()
-        return observation, reward, done, {}
+        return observation, reward - penalty, done, {'reward': reward, 'penalty': penalty}
 
     def reset(self):
         start_point = self._start_points[randint(0, len(self._start_points) - 1)]

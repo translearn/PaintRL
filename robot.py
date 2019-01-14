@@ -73,7 +73,7 @@ class Robot:
     DELTA_Y = 0.05
     PAINT_PER_ACTION = 5
     IN_POSE_TOLERANCE = 0.02
-    NOT_ON_PART_TERMINATE_TIME = 1000
+    NOT_ON_PART_TERMINATE_STEPS = 1000
 
     def __init__(self, step_manager, urdf_path, pos=(0, 0, 0), orn=(0, 0, 0, 1), with_robot=True):
         self.robot_id = p.loadURDF(urdf_path, pos, orn, useFixedBase=True, flags=p.URDF_USE_SELF_COLLISION)
@@ -96,6 +96,8 @@ class Robot:
 
         self._step_manager = step_manager
         self._reset_termination_variables()
+
+        self.off_part_penalty = 0
 
     def _reset_termination_variables(self):
         self._terminate = False
@@ -170,7 +172,7 @@ class Robot:
             self._terminate_counter = 0
         self._terminate_counter += 1
         self._last_on_part = False
-        if self._terminate_counter > Robot.NOT_ON_PART_TERMINATE_TIME:
+        if self._terminate_counter > Robot.NOT_ON_PART_TERMINATE_STEPS:
             self._terminate = True
 
     def _get_actions(self, part_id, delta_axis1, delta_axis2):
@@ -182,6 +184,7 @@ class Robot:
         delta1 = delta_axis1 / Robot.PAINT_PER_ACTION
         delta2 = delta_axis2 / Robot.PAINT_PER_ACTION
         # target_len = math.sqrt(delta1 ** 2 + delta2 ** 2)
+        current_on_part_counter = self._terminate_counter
         for i in range(Robot.PAINT_PER_ACTION):
             pos, orn_norm = p.get_guided_point(part_id, current_pose, current_orn_norm, delta1, delta2)
             # pos, orn_norm = _regularize_pose_orn(current_pose, current_orn_norm, pos, orn_norm, target_len)
@@ -197,6 +200,10 @@ class Robot:
             poses[i] = [pos, orn]
             current_pose, current_orn_norm = pos, orn_norm
         self._set_joint_pose(joint_pose)
+        if self._terminate_counter - current_on_part_counter >= Robot.PAINT_PER_ACTION:
+            self.off_part_penalty = 1
+        else:
+            self.off_part_penalty = 0
         return act, poses
 
     def _set_joint_pose(self, joint_angles):
