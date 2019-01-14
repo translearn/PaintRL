@@ -36,13 +36,16 @@ tune.registry.register_env('robot_gym_env', env_creator)
 def on_episode_start(info):
     episode = info['episode']
     print('episode {} started'.format(episode.episode_id))
-    # episode.user_data['robot_pose'] = []
+    episode.user_data['total_reward'] = 0
+    episode.user_data['total_penalty'] = 0
 
 
 def on_episode_step(info):
     episode = info['episode']
-    robot_pose = episode.last_observation_for()[-2:]
-    # episode.user_data['robot_pose'].append(robot_pose)
+    episode_info = episode.last_info_for()
+    if episode_info:
+        episode.user_data['total_reward'] += episode_info['reward']
+        episode.user_data['total_penalty'] += episode_info['penalty']
 
 
 def on_episode_end(info):
@@ -50,7 +53,9 @@ def on_episode_end(info):
     # pole_angle = np.mean(episode.user_data['robot_pose'])
     print('episode {} ended with length {}'.format(
         episode.episode_id, episode.length))
-    # episode.custom_metrics['robot_pose'] = pole_angle
+    episode.custom_metrics['total_reward'] = episode.user_data['total_reward']
+    episode.custom_metrics['total_penalty'] = episode.user_data['total_penalty']
+    episode.custom_metrics['total_return'] = episode.user_data['total_reward'] - episode.user_data['total_penalty']
 
 
 def on_sample_end(info):
@@ -64,11 +69,11 @@ def on_train_result(info):
     info['result']['callback_ok'] = True
 
 
-def train(config, reporter):
-    agent = ppo.PPOAgent(config=config, env='robot_gym_env')
-    while True:
-        result = agent.train()
-        reporter(**result)
+# def train(config, reporter):
+#     agent = ppo.PPOAgent(config=config, env='robot_gym_env')
+#     while True:
+#         result = agent.train()
+#         reporter(**result)
 
 
 def make_ppo_env(is_train=True):
