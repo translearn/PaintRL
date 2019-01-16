@@ -56,6 +56,7 @@ def on_episode_end(info):
     episode.custom_metrics['total_reward'] = episode.user_data['total_reward']
     episode.custom_metrics['total_penalty'] = episode.user_data['total_penalty']
     episode.custom_metrics['total_return'] = episode.user_data['total_reward'] - episode.user_data['total_penalty']
+    print(' Achieved return in this episode: {}'.format(episode.custom_metrics['total_return']))
 
 
 def on_sample_end(info):
