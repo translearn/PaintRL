@@ -110,6 +110,7 @@ class RobotGymEnv(gym.Env):
 
         self._last_status = 0
         self._step_counter = 0
+        self._total_return = 0
         self._paint_side = p.Side.front
         # monotone, multi-color should not be used
         self._paint_color = (1, 0, 0)
@@ -180,9 +181,14 @@ class RobotGymEnv(gym.Env):
         self.robot.apply_action(action, self._part_id, self._paint_color, self._paint_side)
         reward = self._reward()
         penalty = self._penalty()
+        actual_reward = reward - penalty
         done = self._termination()
         observation = self._augmented_observation()
-        return observation, reward - penalty, done, {'reward': reward, 'penalty': penalty}
+        if not done:
+            self._total_return += actual_reward
+        if self._renders:
+            p.write_text_info(self._part_id, action, reward, penalty, self._total_return, self._step_counter)
+        return observation, actual_reward, done, {'reward': reward, 'penalty': penalty}
 
     def reset(self):
         start_point = self._start_points[randint(0, len(self._start_points) - 1)]
@@ -191,6 +197,7 @@ class RobotGymEnv(gym.Env):
         self.robot.reset(start_point)
         self._last_status = 0
         self._step_counter = 0
+        self._total_return = 0
         p.reset_part(self._part_id)
         return self._augmented_observation()
 

@@ -200,6 +200,48 @@ class BarycentricInterpolator:
         self._vn = self.calculate_normal_from_abc()
 
 
+class TextWriter:
+    text_color = (0, 0, 0)
+    text_size = 1.5
+    line_space = 0.07
+    Total_lines = 4
+
+    def __init__(self, urdf_id, principle_axes, axes_ranges):
+        self._urdf_id = urdf_id
+        self._text_id_buffer = []
+        self._principle_axes = principle_axes
+        self._axes_ranges = axes_ranges
+        self.lines = TextWriter.Total_lines
+        self._base_pos = getBasePositionAndOrientation(urdf_id)[0]
+
+    def _get_pos(self):
+        if self.lines == 0:
+            self.lines = TextWriter.Total_lines
+        self.lines -= 1
+        offset = list(self._base_pos)
+        offset[self._principle_axes[0]] = self._axes_ranges[0][1]
+        offset[self._principle_axes[1]] = self._axes_ranges[1][1]
+        offset[self._principle_axes[1]] += self.lines * TextWriter.line_space
+        return offset
+
+    def _write_line(self, line):
+        text_id = addUserDebugText(line, self._get_pos(), textColorRGB=TextWriter.text_color,
+                                   textSize=TextWriter.text_size)
+        self._text_id_buffer.append(text_id)
+
+    def _delete_old_lines(self):
+        for item_id in self._text_id_buffer:
+            removeUserDebugItem(item_id)
+        self._text_id_buffer.clear()
+
+    def write_text_info(self, action, reward, penalty, total_return, step):
+        self._delete_old_lines()
+        self._write_line('Action: [{0:.3f}, {1:.3f}]'.format(round(action[0], 3), round(action[1], 3)))
+        self._write_line('Reward: {0:.3f}, Penalty: {1:.3f}'.format(round(reward, 3), round(penalty, 3)))
+        self._write_line('Total return: {0:.3f}'.format(round(total_return, 3)))
+        self._write_line('Step: {}'.format(step))
+
+
 class Part:
     HOOK_DISTANCE_TO_PART = 0.1
     # Color to mark irrelevant pixels, used for preprocessing and calculate rewards
@@ -214,6 +256,7 @@ class Part:
     Store the loaded urdf cache and its correspondent change texture parameters,
     extract the pixels on the part to be painted.
     """
+
     def __init__(self, urdf_id=-1, render=True):
         self.urdf_id = urdf_id
         self.uv_map = None
@@ -231,6 +274,7 @@ class Part:
         self.ranges = None
         self.front_normal = None
         self._render = render
+        self._writer = None
 
     def _get_texel(self, i, j):
         return min((i + j * self.texture_width) * 3, len(self.texture_pixels) - 4)
@@ -289,7 +333,7 @@ class Part:
                 #     bary.add_debug_info()
                 #     bary.draw_face_normal()
         # _get_texture_image(self.texture_pixels, self.texture_width, self.texture_height).show()
-        changeTexture(self.texture_id, self.texture_pixels, self. texture_width, self.texture_height)
+        changeTexture(self.texture_id, self.texture_pixels, self.texture_width, self.texture_height)
 
     def _label_part(self):
         # preprocessing all irrelevant pixels
@@ -397,6 +441,7 @@ class Part:
 
     def set_ranges_along_principle(self, ranges):
         self.ranges = ranges
+        self._writer = TextWriter(self.urdf_id, self.principle_axes, self.ranges)
 
     def get_guided_point(self, point, normal, delta_axis1, delta_axis2):
         point = list(point)
@@ -445,6 +490,9 @@ class Part:
         for phase in obs:
             result[phase] = obs[phase] / obs[max_factor]
         return result
+
+    def write_text_info(self, action, reward, penalty, total_return, step):
+        self._writer.write_text_info(action, reward, penalty, total_return, step)
 
 
 def _get_abs_file_path(root_path, path):
@@ -553,7 +601,7 @@ def _get_uv_map(file, v_array, vt_array, vn_array, front_normal):
         content = line.split()
         if not len(content):
             continue
-        if content[0] == 'f':
+        if content[0] == 'f' and len(content) == 4:
             triangle_point_indexes = [int(i.split('/')[0]) - 1 for i in content[1:]]
             v_coordinates = [v_array[i] for i in triangle_point_indexes]
             uv_coordinates = [vt_array[int(i.split('/')[1]) - 1] for i in content[1:]]
@@ -694,3 +742,7 @@ def get_partial_observation(urdf_id, side, pose, color, sections=18):
 
 def reset_part(urdf_id):
     _urdf_cache[urdf_id].reset_part()
+
+
+def write_text_info(urdf_id, action, reward, penalty, total_return, step):
+    _urdf_cache[urdf_id].write_text_info(action, reward, penalty, total_return, step)
