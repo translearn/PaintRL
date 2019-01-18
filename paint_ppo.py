@@ -78,8 +78,8 @@ def on_train_result(info):
 
 
 def make_ppo_env(is_train=True, with_lr_schedule=False):
-    workers = 4
-    gpus_per_worker = 0.25
+    workers = 8
+    gpus_per_worker = 0.125
     env = {
         'urdf_root': urdf_root,
         'with_robot': False,
@@ -119,8 +119,8 @@ def make_ppo_env(is_train=True, with_lr_schedule=False):
         'num_gpus_per_worker': gpus_per_worker,
         'lr_schedule': lr_schedule,
         'sample_batch_size': 200,
-        'train_batch_size': 800,
-        'sgd_minibatch_size': 32,
+        'train_batch_size': 1600,
+        'sgd_minibatch_size': 64,
         'num_sgd_iter': 30,
     })
     return ppo_agent
