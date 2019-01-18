@@ -65,6 +65,7 @@ def _get_point_along_normal(point, length, vn):
 
 
 class BarycentricInterpolator:
+    MIN_AREA = 1e-4
     """
     Each f line in the obj will be initialized as a barycentric interpolator
     The interpolation algorithm is taken from:
@@ -82,6 +83,8 @@ class BarycentricInterpolator:
         self._d11 = np.dot(self._v1, self._v1)
         self._inv_denom = 1.0 / (self._d00 * self._d11 - self._d01 * self._d01)
 
+        self.area_valid = self._valid_area()
+
         self._uva = None
         self._uvb = None
         self._uvc = None
@@ -97,6 +100,10 @@ class BarycentricInterpolator:
         w = (self._d00 * d21 - self._d01 * d20) * self._inv_denom
         u = 1.0 - v - w
         return u, v, w
+
+    def _valid_area(self):
+        area = np.linalg.norm(np.cross(self._v0, self._v1)) / 2
+        return area >= BarycentricInterpolator.MIN_AREA
 
     def get_min_uvw(self, point):
         bary_a, bary_b, bary_c = self._get_bary_coordinate(point)
@@ -180,11 +187,15 @@ class BarycentricInterpolator:
     def get_normal(self):
         return self._vn
 
-    def draw_face_normal(self):
+    def get_face_guide_point(self, distance):
         center_point = []
         for a, b, c in zip(self._a, self._b, self._c):
             center_point.append((a + b + c) / 3)
-        target_point = self.get_point_along_normal(center_point, 0.25)
+        target_point = self.get_point_along_normal(center_point, distance)
+        return center_point, target_point
+
+    def draw_face_normal(self):
+        center_point, target_point = self.get_face_guide_point(0.25)
         addUserDebugLine(center_point, target_point, (1, 0, 0) if self._side == Side.front else (0, 1, 0))
 
     def calculate_normal_from_abc(self):
@@ -260,6 +271,7 @@ class Part:
     def __init__(self, urdf_id=-1, render=True):
         self.urdf_id = urdf_id
         self.uv_map = None
+        self.bary_list = None
         self.vertices = None
         self.vertices_kd_tree = {}
         self.texture_id = None
@@ -437,7 +449,23 @@ class Part:
                     self._start_points[side].append([pose, orn])
 
     def get_start_points(self, side):
-        return self._start_points[side]
+        # return self._start_points[side]
+        start_points = []
+        axis_1_value = [item[0][self.principle_axes[0]] for item in self._start_points[side]]
+        axis_1_max, axis_1_min = max(axis_1_value), min(axis_1_value)
+        axis_2_value = [item[0][self.principle_axes[1]] for item in self._start_points[side]]
+        axis_2_max, axis_2_min = max(axis_2_value), min(axis_2_value)
+        for bary in self.bary_list:
+            if bary.is_in_same_side(side) and bary.area_valid:
+                center_point, hook_point = bary.get_face_guide_point(Part.HOOK_DISTANCE_TO_PART)
+                if axis_1_min <= center_point[self.principle_axes[0]] <= axis_1_max and \
+                        axis_2_min <= center_point[self.principle_axes[1]] <= axis_2_max:
+                    orn = [-i for i in bary.get_normal()]
+                    start_points.append([hook_point, orn])
+                    # bary.add_debug_info()
+                    # bary.draw_face_normal()
+
+        return self._start_points[side] + start_points
 
     def set_ranges_along_principle(self, ranges):
         self.ranges = ranges
@@ -597,6 +625,7 @@ def _get_side(front_normal, v):
 def _get_uv_map(file, v_array, vt_array, vn_array, front_normal):
     file.seek(0)
     uv_map = {}
+    bary_list = []
     for line in file:
         content = line.split()
         if not len(content):
@@ -617,11 +646,12 @@ def _get_uv_map(file, v_array, vt_array, vn_array, front_normal):
                     norm = np.linalg.norm(vn_normal)
                     vn_normal = [i / norm for i in vn_normal]
                 bary_interpolator.set_face_normal(vn_normal, front_normal)
+                bary_list.append(bary_interpolator)
             for v_index in triangle_point_indexes:
                 if v_index not in uv_map:
                     uv_map[v_index] = []
                 uv_map[v_index].append(bary_interpolator)
-    return uv_map
+    return bary_list, uv_map
 
 
 def _get_coordinate_range(v_array, col_num):
@@ -671,9 +701,10 @@ def _cache_obj(urdf_obj, obj_path):
         global_v_array = _get_global_coordinate(urdf_obj.urdf_id, v_array)
         urdf_obj.principle_axes, non_principle_axis = _get_principle_axes(global_v_array)
         urdf_obj.front_normal = AXES[non_principle_axis]
-        uv_map = _get_uv_map(f, global_v_array, vt_array, vn_array, urdf_obj.front_normal)
+        bary_list, uv_map = _get_uv_map(f, global_v_array, vt_array, vn_array, urdf_obj.front_normal)
         urdf_obj.vertices = global_v_array
         urdf_obj.uv_map = uv_map
+        urdf_obj.bary_list = bary_list
         urdf_obj.preprocess()
         corner_points, ranges = _get_corner_points_ranges(global_v_array, urdf_obj.principle_axes)
         urdf_obj.set_start_points(corner_points)
