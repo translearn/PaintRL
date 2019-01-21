@@ -263,6 +263,8 @@ class Part:
     IRRELEVANT_POSE = (10, 10, 10)
     # Distance weight factor, 0 means no distance weight
     DISTANCE_FACTOR = 1
+    # Refine the feedback of the end effector pose to grid representation, prevent part overfitting
+    GRID_GRANULARITY = 100
     """
     Store the loaded urdf cache and its correspondent change texture parameters,
     extract the pixels on the part to be painted.
@@ -283,10 +285,12 @@ class Part:
         self.profile = {}
         self.profile_dicts = {}
         self.principle_axes = None
+        self.non_principle_axis = None
         self.ranges = None
         self.front_normal = None
         self._render = render
         self._writer = None
+        self._grid_dict = {}
 
     def _get_texel(self, i, j):
         return min((i + j * self.texture_width) * 3, len(self.texture_pixels) - 4)
@@ -470,6 +474,8 @@ class Part:
     def set_ranges_along_principle(self, ranges):
         self.ranges = ranges
         self._writer = TextWriter(self.urdf_id, self.principle_axes, self.ranges)
+        for side in self.profile:
+            self.set_grid_dict(side)
 
     def get_guided_point(self, point, normal, delta_axis1, delta_axis2):
         point = list(point)
@@ -486,12 +492,67 @@ class Part:
         pos, orn = self._get_hook_point(surface_point, current_side)
         return pos, orn if orn else normal
 
-    def get_normalized_pose(self, pose):
+    def _get_exact_boundary(self, point, is_min=True):
+        proof_axis = self.principle_axes[0]
+        step_size = -1e-3 if is_min else 1e-3
+        steps_range = int((self.ranges[0][1] - self.ranges[0][0]) / abs(step_size))
+        start_point, end_point = list(point), list(point)
+        for i in range(steps_range):
+            current_boundary = point[proof_axis] + i * step_size
+            start_point[proof_axis] = current_boundary
+            end_point[proof_axis] = current_boundary
+            start_point[self.non_principle_axis] -= 1
+            end_point[self.non_principle_axis] += 1
+            # addUserDebugLine(start_point, end_point, (1, 0, 0))
+            result = rayTestBatch([start_point], [end_point])
+            if not result[0][0] == self.urdf_id:
+                return current_boundary
+
+    def set_grid_dict(self, side):
+        grid_dict = {}
+        axis_1, axis_2 = self.principle_axes[0], self.principle_axes[1]
+        sorted_list = sorted(self.vertices_kd_tree[side].data, key=lambda v: v[axis_2])
+        sorted_list = [item for item in sorted_list if item[0] != Part.IRRELEVANT_POSE[0]]
+        traverse_index = 0
+        axis2_range = self.ranges[1][1] - self.ranges[1][0]
+        step_size = axis2_range / Part.GRID_GRANULARITY
+        for i in range(Part.GRID_GRANULARITY):
+            current_traverse_index = traverse_index
+            current_step_max = self.ranges[1][0] + (i + 1) * step_size
+            for index in range(current_traverse_index, len(sorted_list)):
+                if sorted_list[index][axis_2] >= current_step_max:
+                    target_list = sorted_list[current_traverse_index: index]
+                    sorted_target_list = sorted(target_list, key=lambda x: x[self.principle_axes[0]])
+                    # range_min, range_max = [sorted_target_list[0][axis_1], sorted_target_list[-1][axis_1]]
+                    range_min, range_max = [self._get_exact_boundary(sorted_target_list[0]),
+                                            self._get_exact_boundary(sorted_target_list[-1], is_min=False)]
+                    grid_dict[i] = (range_min, range_max)
+                    traverse_index = index
+                    break
+        self._grid_dict[side] = grid_dict
+
+    def get_normalized_pose(self, side, pose):
         axis1_real = pose[self.principle_axes[0]]
         axis2_real = pose[self.principle_axes[1]]
-        axis1_in_range = (axis1_real - self.ranges[0][0]) / (self.ranges[0][1] - self.ranges[0][0])
         axis2_in_range = (axis2_real - self.ranges[1][0]) / (self.ranges[1][1] - self.ranges[1][0])
+        grid_index = int(axis2_in_range * Part.GRID_GRANULARITY)
+        grid_index = min(grid_index, Part.GRID_GRANULARITY - 1)
+        grid_range = self._grid_dict[side][grid_index]
+        # self._debug_grid(pose, side)
+        axis1_in_range = (axis1_real - grid_range[0]) / (grid_range[1] - grid_range[0])
         return _clip_to_01_np(axis1_in_range), _clip_to_01_np(axis2_in_range)
+
+    def _debug_grid(self, pose, side):
+        step_size = (self.ranges[1][1] - self.ranges[1][0]) / Part.GRID_GRANULARITY
+        for i in range(Part.GRID_GRANULARITY):
+            addUserDebugLine((pose[0], self._grid_dict[side][i][0], self.ranges[1][0] + (i + 1) * step_size),
+                             (pose[0], self._grid_dict[side][i][0], self.ranges[1][0] + i * step_size), (1, 0, 0))
+            addUserDebugLine((pose[0], self._grid_dict[side][i][1], self.ranges[1][0] + (i + 1) * step_size),
+                             (pose[0], self._grid_dict[side][i][1], self.ranges[1][0] + i * step_size), (1, 0, 0))
+            addUserDebugLine((pose[0], self._grid_dict[side][i][0], self.ranges[1][0] + i * step_size),
+                             (pose[0], self._grid_dict[side][i][1], self.ranges[1][0] + i * step_size), (1, 0, 0))
+            addUserDebugLine((pose[0], self._grid_dict[side][i][0], self.ranges[1][0] + (i + 1) * step_size),
+                             (pose[0], self._grid_dict[side][i][1], self.ranges[1][0] + (i + 1) * step_size), (1, 0, 0))
 
     def get_partial_observation(self, side, pose, color, sections=18):
         # 360 / 20 = 18 sections
@@ -699,8 +760,8 @@ def _cache_obj(urdf_obj, obj_path):
     with open(obj_path, mode='r') as f:
         v_array, vn_array, vt_array = _retrieve_obj_elements(f)
         global_v_array = _get_global_coordinate(urdf_obj.urdf_id, v_array)
-        urdf_obj.principle_axes, non_principle_axis = _get_principle_axes(global_v_array)
-        urdf_obj.front_normal = AXES[non_principle_axis]
+        urdf_obj.principle_axes, urdf_obj.non_principle_axis = _get_principle_axes(global_v_array)
+        urdf_obj.front_normal = AXES[urdf_obj.non_principle_axis]
         bary_list, uv_map = _get_uv_map(f, global_v_array, vt_array, vn_array, urdf_obj.front_normal)
         urdf_obj.vertices = global_v_array
         urdf_obj.uv_map = uv_map
@@ -763,8 +824,8 @@ def get_texture_size(urdf_id):
     return _urdf_cache[urdf_id].get_texture_size()
 
 
-def get_normalized_pose(urdf_id, pose):
-    return _urdf_cache[urdf_id].get_normalized_pose(pose)
+def get_normalized_pose(urdf_id, side, pose):
+    return _urdf_cache[urdf_id].get_normalized_pose(side, pose)
 
 
 def get_partial_observation(urdf_id, side, pose, color, sections=18):

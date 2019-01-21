@@ -161,7 +161,7 @@ class RobotGymEnv(gym.Env):
     def _augmented_observation(self):
         pose, _ = self.robot.get_observation()
         status = p.get_partial_observation(self._part_id, self._paint_side, pose, self._paint_color)
-        normalized_pose = p.get_normalized_pose(self._part_id, pose)
+        normalized_pose = p.get_normalized_pose(self._part_id, self._paint_side, pose)
         return list(status.values()) + list(normalized_pose)
 
     def _reward(self):
