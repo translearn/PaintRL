@@ -85,11 +85,13 @@ def make_ppo_env(is_train=True, with_lr_schedule=False):
         'with_robot': False,
         'renders': False,
         'render_video': False,
+        'rollout': False,
     }
 
     if not is_train:
         env['renders'] = True
         env['with_robot'] = True
+        env['rollout'] = True
         workers = 0
         gpus_per_worker = 1
 
