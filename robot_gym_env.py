@@ -195,7 +195,7 @@ class RobotGymEnv(gym.Env):
 
     def reset(self):
         start_point_number = randint(0, len(self._start_points) - 1)
-        painted_percent = randint(0, 99)
+        painted_percent = 0  # randint(0, 99)
         painted_mode = randint(0, 3)
         if self._rollout:
             start_point_number = 0
