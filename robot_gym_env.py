@@ -102,11 +102,12 @@ class RobotGymEnv(gym.Env):
     action_space = spaces.Box(np.array((-1, -1)), np.array((1, 1)), dtype=np.float32)
     observation_space = spaces.Box(low=0.0, high=1.0, shape=(20, ), dtype=np.float64)
 
-    def __init__(self, urdf_root, with_robot=True, renders=False, render_video=False):
+    def __init__(self, urdf_root, with_robot=True, renders=False, render_video=False, rollout=False):
         self._with_robot = with_robot
         self._renders = renders
         self._render_video = render_video
         self._urdf_root = urdf_root
+        self._rollout = rollout
 
         self._last_status = 0
         self._step_counter = 0
@@ -153,7 +154,9 @@ class RobotGymEnv(gym.Env):
     def _termination(self):
         # cut the long episode to save sampling time
         self._step_counter += 1
-        max_possible_point = p.get_job_limit(self._part_id, self._paint_side)
+        # max_possible_point = p.get_job_limit(self._part_id, self._paint_side)
+        # checked with hand 9148, the 9600 can hardly be reached!
+        max_possible_point = 9148
         finished = False if max_possible_point > self._last_status else True
         robot_termination = self.robot.termination_request()
         return finished or robot_termination or self._step_counter > RobotGymEnv.EPISODE_MAX_LENGTH - 1
@@ -191,14 +194,19 @@ class RobotGymEnv(gym.Env):
         return observation, actual_reward, done, {'reward': reward, 'penalty': penalty}
 
     def reset(self):
-        start_point = self._start_points[randint(0, len(self._start_points) - 1)]
-        # test if the network overfits and correspondent converges quicker
-        # start_point = self._start_points[0]
+        start_point_number = randint(0, len(self._start_points) - 1)
+        painted_percent = randint(0, 99)
+        painted_mode = randint(0, 3)
+        if self._rollout:
+            start_point_number = 0
+            painted_percent = 0
+            painted_mode = 0
+        start_point = self._start_points[start_point_number]
         self.robot.reset(start_point)
-        self._last_status = 0
         self._step_counter = 0
         self._total_return = 0
-        p.reset_part(self._part_id)
+        p.reset_part(self._part_id, self._paint_side, self._paint_color, painted_percent, painted_mode)
+        self._last_status = p.get_job_status(self._part_id, self._paint_side, self._paint_color)
         return self._augmented_observation()
 
     def render(self, mode='human'):
@@ -233,12 +241,25 @@ class RobotGymEnv(gym.Env):
 
 if __name__ == '__main__':
     with RobotGymEnv(os.path.dirname(os.path.realpath(__file__)), with_robot=False,
-                     renders=True, render_video=False) as env:
-        for _ in range(10):
-            env.step([0, 1])
+                     renders=True, render_video=False, rollout=True) as env:
+        # for _ in range(10):
+        #     env.step([0, 1])
         env.step([0, 1])
         env.step([0, 1])
         env.step([0, 1])
+        env.step([1, 0])
+        # env.step([-1, -1])
+        # env.step([-1, -1])
+        # env.step([-1, -1])
+        # env.step([-1, -1])
+        # env.step([-1, -1])
+        env.step([1, 1])
+        env.step([1, 1])
+        env.step([1, 1])
+        env.step([1, 1])
+        env.step([1, 1])
+        env.step([1, 1])
+        env.step([1, 1])
         env.reset()
         env.step([0, 1])
         env.step([0, 1])

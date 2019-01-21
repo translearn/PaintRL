@@ -216,7 +216,7 @@ class TextWriter:
     text_size = 1.5
     line_space = 0.07
     Total_lines = 4
-
+    """Write episode information into the bullet environment"""
     def __init__(self, urdf_id, principle_axes, axes_ranges):
         self._urdf_id = urdf_id
         self._text_id_buffer = []
@@ -240,13 +240,13 @@ class TextWriter:
                                    textSize=TextWriter.text_size)
         self._text_id_buffer.append(text_id)
 
-    def _delete_old_lines(self):
+    def _delete_old_info(self):
         for item_id in self._text_id_buffer:
             removeUserDebugItem(item_id)
         self._text_id_buffer.clear()
 
     def write_text_info(self, action, reward, penalty, total_return, step):
-        self._delete_old_lines()
+        self._delete_old_info()
         self._write_line('Action: [{0:.3f}, {1:.3f}]'.format(round(action[0], 3), round(action[1], 3)))
         self._write_line('Reward: {0:.3f}, Penalty: {1:.3f}'.format(round(reward, 3), round(penalty, 3)))
         self._write_line('Total return: {0:.3f}'.format(round(total_return, 3)))
@@ -256,7 +256,7 @@ class TextWriter:
 class Part:
     HOOK_DISTANCE_TO_PART = 0.1
     # Color to mark irrelevant pixels, used for preprocessing and calculate rewards
-    IRRELEVANT_COLOR = (1, 0, 0)
+    IRRELEVANT_COLOR = (0, 0, 0)
     FRONT_COLOR = (0.75, 0.75, 0.75)
     BACK_COLOR = (0, 1, 0)
     # Place holder in KD-tree, no point can have such a coordinate
@@ -291,6 +291,10 @@ class Part:
         self._render = render
         self._writer = None
         self._grid_dict = {}
+        self._grid_range = {}
+        self._max_grid_size = {}
+
+        self._length_width_ratio = None
 
     def _get_texel(self, i, j):
         return min((i + j * self.texture_width) * 3, len(self.texture_pixels) - 4)
@@ -418,8 +422,9 @@ class Part:
             self.init_texture = self.texture_pixels.copy()
             self._build_kd_tree()
 
-    def reset_part(self):
+    def reset_part(self, side, color, percent, mode):
         self.texture_pixels = self.init_texture.copy()
+        self.initialize_texture(side, color, percent, mode)
 
     def get_texture_size(self):
         return self.texture_width, self.texture_height
@@ -473,15 +478,39 @@ class Part:
 
     def set_ranges_along_principle(self, ranges):
         self.ranges = ranges
+        self._length_width_ratio = (self.ranges[0][1] - self.ranges[0][0]) / (self.ranges[1][1] - self.ranges[1][0])
         self._writer = TextWriter(self.urdf_id, self.principle_axes, self.ranges)
         for side in self.profile:
             self.set_grid_dict(side)
 
+    def _get_grid_index_2(self, val_axis_2):
+        axis2_relative = (val_axis_2 - self.ranges[1][0]) / (self.ranges[1][1] - self.ranges[1][0])
+        grid_index = int(axis2_relative * Part.GRID_GRANULARITY)
+        if grid_index < 0:
+            return 0
+        elif grid_index > Part.GRID_GRANULARITY - 1:
+            return Part.GRID_GRANULARITY - 1
+        return grid_index
+
+    def _get_delta_1(self, point, side, delta_axis1, delta_axis2):
+        """Calculate delta 1 according to the principle 1 range size"""
+        old_val_axis_2 = point[self.principle_axes[1]]
+        val_axis_2 = point[self.principle_axes[1]] + delta_axis2
+        old_grid_index, grid_index = self._get_grid_index_2(old_val_axis_2), self._get_grid_index_2(val_axis_2)
+        if grid_index >= old_grid_index:
+            grid_ranges = [self._grid_range[side][i] for i in range(old_grid_index, grid_index + 1)]
+        else:
+            grid_ranges = [self._grid_range[side][i] for i in range(grid_index, old_grid_index + 1)]
+        avg_size = np.mean(grid_ranges)
+        return delta_axis1 * avg_size / self._max_grid_size[side]
+
     def get_guided_point(self, point, normal, delta_axis1, delta_axis2):
-        point = list(point)
-        point[self.principle_axes[0]] += delta_axis1
-        point[self.principle_axes[1]] += delta_axis2
         current_side = _get_side([-i for i in normal], self.front_normal)
+        point = list(point)
+        delta_2 = delta_axis2 * self._length_width_ratio
+        delta_1 = self._get_delta_1(point, current_side, delta_axis1, delta_2)
+        point[self.principle_axes[0]] += delta_1
+        point[self.principle_axes[1]] += delta_2
         end_point = [a + b for a, b in zip(point, normal)]
         result = rayTestBatch([point], [end_point])
         if not result[0][0] == self.urdf_id:
@@ -491,6 +520,25 @@ class Part:
         surface_point = result[0][3]
         pos, orn = self._get_hook_point(surface_point, current_side)
         return pos, orn if orn else normal
+
+    def initialize_texture(self, side, color, percent, mode=0):
+        """
+        Randomly initial the texture from 4 different sides, with different percentage
+        :param side: part side
+        :param color: target color
+        :param percent: percent to be pre-painted
+        :param mode: 0 = vertical, left; 1 = vertical, right; 2 = horizontal, left; 3 = horizontal, right.
+        :return:
+        """
+        # self.get_texture_image().show()
+        color = _get_color(color)
+        sort_key = 0 if mode in (0, 1) else 1
+        sign = 1 if mode in (0, 2) else -1
+        targets = sorted(self.profile[side], key=lambda p: sign * p[sort_key])
+        quantity = int(len(targets) * percent / 100)
+        for i in range(quantity):
+            self._change_pixel(color, *targets[i])
+        # self.get_texture_image().show()
 
     def _get_exact_boundary(self, point, is_min=True):
         proof_axis = self.principle_axes[0]
@@ -523,20 +571,20 @@ class Part:
                 if sorted_list[index][axis_2] >= current_step_max:
                     target_list = sorted_list[current_traverse_index: index]
                     sorted_target_list = sorted(target_list, key=lambda x: x[self.principle_axes[0]])
-                    # range_min, range_max = [sorted_target_list[0][axis_1], sorted_target_list[-1][axis_1]]
-                    range_min, range_max = [self._get_exact_boundary(sorted_target_list[0]),
-                                            self._get_exact_boundary(sorted_target_list[-1], is_min=False)]
+                    range_min = self._get_exact_boundary(sorted_target_list[0])
+                    range_max = self._get_exact_boundary(sorted_target_list[-1], is_min=False)
                     grid_dict[i] = (range_min, range_max)
                     traverse_index = index
                     break
         self._grid_dict[side] = grid_dict
+        self._grid_range[side] = {key: (value[1] - value[0]) for key, value in grid_dict.items()}
+        self._max_grid_size[side] = max(self._grid_range[side].values())
 
     def get_normalized_pose(self, side, pose):
         axis1_real = pose[self.principle_axes[0]]
         axis2_real = pose[self.principle_axes[1]]
         axis2_in_range = (axis2_real - self.ranges[1][0]) / (self.ranges[1][1] - self.ranges[1][0])
-        grid_index = int(axis2_in_range * Part.GRID_GRANULARITY)
-        grid_index = min(grid_index, Part.GRID_GRANULARITY - 1)
+        grid_index = self._get_grid_index_2(axis2_real)
         grid_range = self._grid_dict[side][grid_index]
         # self._debug_grid(pose, side)
         axis1_in_range = (axis1_real - grid_range[0]) / (grid_range[1] - grid_range[0])
@@ -556,6 +604,7 @@ class Part:
 
     def get_partial_observation(self, side, pose, color, sections=18):
         # 360 / 20 = 18 sections
+        color = _get_color(color)
         obs = {}
         result = {}
         for i in range(sections):
@@ -832,8 +881,8 @@ def get_partial_observation(urdf_id, side, pose, color, sections=18):
     return _urdf_cache[urdf_id].get_partial_observation(side, pose, color, sections)
 
 
-def reset_part(urdf_id):
-    _urdf_cache[urdf_id].reset_part()
+def reset_part(urdf_id, side, color, percent, mode):
+    _urdf_cache[urdf_id].reset_part(side, color, percent, mode)
 
 
 def write_text_info(urdf_id, action, reward, penalty, total_return, step):
