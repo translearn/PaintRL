@@ -460,19 +460,20 @@ class Part:
     def get_start_points(self, side):
         # return self._start_points[side]
         start_points = []
-        axis_1_value = [item[0][self.principle_axes[0]] for item in self._start_points[side]]
-        axis_1_max, axis_1_min = max(axis_1_value), min(axis_1_value)
         axis_2_value = [item[0][self.principle_axes[1]] for item in self._start_points[side]]
         axis_2_max, axis_2_min = max(axis_2_value), min(axis_2_value)
         for bary in self.bary_list:
             if bary.is_in_same_side(side) and bary.area_valid:
                 center_point, hook_point = bary.get_face_guide_point(Part.HOOK_DISTANCE_TO_PART)
-                if axis_1_min <= center_point[self.principle_axes[0]] <= axis_1_max and \
+                grid_index = self._get_grid_index_2(center_point[self.principle_axes[1]])
+                grid_range = self._grid_dict[side][grid_index]
+                if center_point[self.principle_axes[0]] - grid_range[0] >= MIN_PAINT_DIAMETER and \
+                        grid_range[1] - center_point[self.principle_axes[0]] >= MIN_PAINT_DIAMETER and \
                         axis_2_min <= center_point[self.principle_axes[1]] <= axis_2_max:
                     orn = [-i for i in bary.get_normal()]
                     start_points.append([hook_point, orn])
-                    # bary.add_debug_info()
-                    # bary.draw_face_normal()
+                    bary.add_debug_info()
+                    bary.draw_face_normal()
 
         return self._start_points[side] + start_points
 
