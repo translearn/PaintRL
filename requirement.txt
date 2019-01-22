@@ -1,8 +1,5 @@
 absl-py==0.5.0
 alabaster==0.7.10
-anaconda-client==1.6.14
-anaconda-navigator==1.8.7
-anaconda-project==0.8.2
 asn1crypto==0.24.0
 astor==0.7.1
 astroid==1.6.3
@@ -28,9 +25,6 @@ click==6.7
 cloudpickle==0.5.3
 clyent==1.2.2
 colorama==0.3.9
-conda==4.5.4
-conda-build==3.10.5
-conda-verify==2.0.0
 contextlib2==0.5.5
 coordinates==0.2.0
 cryptography==2.2.2
