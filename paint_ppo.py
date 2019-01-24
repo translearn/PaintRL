@@ -50,13 +50,15 @@ def on_episode_step(info):
 
 def on_episode_end(info):
     episode = info['episode']
-    # pole_angle = np.mean(episode.user_data['robot_pose'])
     print('episode {} ended with length {}'.format(
         episode.episode_id, episode.length))
     episode.custom_metrics['total_reward'] = episode.user_data['total_reward']
     episode.custom_metrics['total_penalty'] = episode.user_data['total_penalty']
     episode.custom_metrics['total_return'] = episode.user_data['total_reward'] - episode.user_data['total_penalty']
-    print('Achieved return in this episode: {}'.format(episode.custom_metrics['total_return']))
+    print('Achieved {0:.3f} return, in which {1:.3f} reward, '
+          '{2:.3f} penalty in this episode:'.format(episode.custom_metrics['total_return'],
+                                                    episode.custom_metrics['total_reward'],
+                                                    episode.custom_metrics['total_penalty']))
 
 
 def on_sample_end(info):
