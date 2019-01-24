@@ -9,11 +9,12 @@ from pybullet import *
 import xml.etree.ElementTree as Et
 import numpy as np
 from PIL import Image
-from scipy.spatial import cKDTree
+from scipy.spatial import cKDTree, ConvexHull
 
 _urdf_cache = {}
 AXES = [(1, 0, 0), (0, 1, 0), (0, 0, 1)]
 MIN_PAINT_DIAMETER = 0.025
+MAX_ANGLE_DIFF = np.pi / 3
 
 
 def _show_flange_debug_line(points):
@@ -64,6 +65,54 @@ def _get_point_along_normal(point, length, vn):
     return [a + b for a, b in zip(point, proportional_vn)]
 
 
+class ConvHull:
+
+    def __init__(self, v_list, side_v_dict, front_normal, principle_axes):
+        self._v_list = v_list
+        self._side_v_dict = side_v_dict
+        self._front_normal = front_normal
+        self._principle_axes = principle_axes
+        self.hull = ConvexHull(self._v_list)
+        self.bary_dict = {}
+
+    def add_debug_info(self, side):
+        for bary in self.bary_dict[side]:
+            bary.add_debug_info()
+            bary.draw_face_normal()
+
+    def separate_by_side(self, sides):
+        for side in sides:
+            self.bary_dict[side] = []
+            for item in getattr(self.hull, 'simplices'):
+                side_counter = 0
+                for p in item:
+                    if self._side_v_dict[side].data[p][0] != Part.IRRELEVANT_POSE[0]:
+                        side_counter += 1
+                if side_counter >= 2:
+                    bary = BarycentricInterpolator(self._v_list[item[0]], self._v_list[item[1]], self._v_list[item[2]])
+                    bary.set_face_normal(None, self._front_normal)
+                    two_d_bary = bary.get_2d_bary(self._principle_axes)
+                    if not bary.is_in_same_side(side):
+                        bary.negate_normal()
+                    self.bary_dict[side].append([bary, two_d_bary])
+            # if side == Side.front:
+            #     self.add_debug_info(side)
+
+    def correct_bary_normal(self, bary):
+        point = bary.center_point
+        test_point = [point[self._principle_axes[0]], point[self._principle_axes[1]]]
+        for three_d_bary, two_d_bary in self.bary_dict[bary.get_side()]:
+            if two_d_bary.is_inside_triangle(test_point):
+                if _get_included_angle(bary.get_normal(), three_d_bary.get_normal()) > MAX_ANGLE_DIFF / 2:
+                    # if bary.is_in_same_side(Side.front):
+                    #     bary.add_debug_info()
+                    #     bary.draw_face_normal()
+                    #     three_d_bary.add_debug_info()
+                    #     three_d_bary.draw_face_normal()
+                    bary.correct_normal(three_d_bary.get_normal())
+                break
+
+
 class BarycentricInterpolator:
     MIN_AREA = 1e-4
     """
@@ -81,7 +130,8 @@ class BarycentricInterpolator:
         self._d00 = np.dot(self._v0, self._v0)
         self._d01 = np.dot(self._v0, self._v1)
         self._d11 = np.dot(self._v1, self._v1)
-        self._inv_denom = 1.0 / (self._d00 * self._d11 - self._d01 * self._d01)
+        denom = (self._d00 * self._d11 - self._d01 * self._d01)
+        self._inv_denom = 1.0 / denom if denom != 0 else 0
 
         self.area_valid = self._valid_area()
 
@@ -89,8 +139,17 @@ class BarycentricInterpolator:
         self._uvb = None
         self._uvc = None
 
+        self._ori_vn = None
         self._vn = None
         self._side = None
+
+        self._get_center_point()
+
+    def _get_center_point(self):
+        center_point = []
+        for a, b, c in zip(self._a, self._b, self._c):
+            center_point.append((a + b + c) / 3)
+        self.center_point = center_point
 
     def _get_bary_coordinate(self, point):
         v2 = np.subtract(point, self._a)
@@ -99,6 +158,8 @@ class BarycentricInterpolator:
         v = (self._d11 * d20 - self._d01 * d21) * self._inv_denom
         w = (self._d00 * d21 - self._d01 * d20) * self._inv_denom
         u = 1.0 - v - w
+        if self._inv_denom == 0:
+            return -1, -1, -1
         return u, v, w
 
     def _valid_area(self):
@@ -188,11 +249,8 @@ class BarycentricInterpolator:
         return self._vn
 
     def get_face_guide_point(self, distance):
-        center_point = []
-        for a, b, c in zip(self._a, self._b, self._c):
-            center_point.append((a + b + c) / 3)
-        target_point = self.get_point_along_normal(center_point, distance)
-        return center_point, target_point
+        target_point = self.get_point_along_normal(self.center_point, distance)
+        return self.center_point, target_point
 
     def draw_face_normal(self):
         center_point, target_point = self.get_face_guide_point(0.25)
@@ -209,6 +267,23 @@ class BarycentricInterpolator:
 
     def align_normal(self):
         self._vn = self.calculate_normal_from_abc()
+
+    def negate_normal(self):
+        self._vn = [-i for i in self._vn]
+
+    def correct_normal(self, vn):
+        self._ori_vn = self._vn
+        self._vn = vn
+
+    def recover_normal(self):
+        if self._ori_vn:
+            self._vn = self._ori_vn
+
+    def get_2d_bary(self, principle_axes):
+        a_p = [self._a[principle_axes[0]], self._a[principle_axes[1]]]
+        b_p = [self._b[principle_axes[0]], self._b[principle_axes[1]]]
+        c_p = [self._c[principle_axes[0]], self._c[principle_axes[1]]]
+        return BarycentricInterpolator(a_p, b_p, c_p)
 
 
 class TextWriter:
@@ -422,6 +497,18 @@ class Part:
             self.init_texture = self.texture_pixels.copy()
             self._build_kd_tree()
 
+    def _correct_bary_normals(self):
+        hull = ConvHull(self.vertices, self.vertices_kd_tree, AXES[self.non_principle_axis], self.principle_axes)
+        hull.separate_by_side(self.profile.keys())
+        for bary in self.bary_list:
+            side = bary.get_side()
+            if side in self.profile:
+                relative_pose = self.get_normalized_pose(side, bary.center_point)
+                if relative_pose[0] <= 0.01 or relative_pose[0] >= 0.99 \
+                        or relative_pose[1] <= 0.01 or relative_pose[1] >= 0.99:
+                    continue
+                hull.correct_bary_normal(bary)
+
     def reset_part(self, side, color, percent, mode):
         self.texture_pixels = self.init_texture.copy()
         self.initialize_texture(side, color, percent, mode)
@@ -472,8 +559,8 @@ class Part:
                         axis_2_min <= center_point[self.principle_axes[1]] <= axis_2_max:
                     orn = [-i for i in bary.get_normal()]
                     start_points.append([hook_point, orn])
-                    bary.add_debug_info()
-                    bary.draw_face_normal()
+                    # bary.add_debug_info()
+                    # bary.draw_face_normal()
 
         return self._start_points[side] + start_points
 
@@ -483,6 +570,7 @@ class Part:
         self._writer = TextWriter(self.urdf_id, self.principle_axes, self.ranges)
         for side in self.profile:
             self.set_grid_dict(side)
+        self._correct_bary_normals()
 
     def _get_grid_index_2(self, val_axis_2):
         axis2_relative = (val_axis_2 - self.ranges[1][0]) / (self.ranges[1][1] - self.ranges[1][0])
@@ -577,6 +665,8 @@ class Part:
                     grid_dict[i] = (range_min, range_max)
                     traverse_index = index
                     break
+            else:
+                grid_dict[i] = (0, 0)
         self._grid_dict[side] = grid_dict
         self._grid_range[side] = {key: (value[1] - value[0]) for key, value in grid_dict.items()}
         self._max_grid_size[side] = max(self._grid_range[side].values())
@@ -588,7 +678,10 @@ class Part:
         grid_index = self._get_grid_index_2(axis2_real)
         grid_range = self._grid_dict[side][grid_index]
         # self._debug_grid(pose, side)
-        axis1_in_range = (axis1_real - grid_range[0]) / (grid_range[1] - grid_range[0])
+        if grid_range[1] - grid_range[0] == 0:
+            axis1_in_range = 0
+        else:
+            axis1_in_range = (axis1_real - grid_range[0]) / (grid_range[1] - grid_range[0])
         return _clip_to_01_np(axis1_in_range), _clip_to_01_np(axis2_in_range)
 
     def _debug_grid(self, pose, side):
@@ -726,9 +819,9 @@ def _get_side(front_normal, v):
     angle_front = _get_included_angle(front_normal, v)
     back_normal = [-i for i in front_normal]
     angle_back = _get_included_angle(back_normal, v)
-    if - np.pi / 3 <= angle_front <= np.pi / 3:
+    if - MAX_ANGLE_DIFF <= angle_front <= MAX_ANGLE_DIFF:
         return Side.front
-    if - np.pi / 3 <= angle_back <= np.pi / 3:
+    if - MAX_ANGLE_DIFF <= angle_back <= MAX_ANGLE_DIFF:
         return Side.back
     return Side.other
 
@@ -820,6 +913,9 @@ def _cache_obj(urdf_obj, obj_path):
         corner_points, ranges = _get_corner_points_ranges(global_v_array, urdf_obj.principle_axes)
         urdf_obj.set_start_points(corner_points)
         urdf_obj.set_ranges_along_principle(ranges)
+        # hull = ConvHull(global_v_array)
+        # hull.set_normal(urdf_obj.front_normal)
+        # hull.separate_by_side(Side.back)
 
 
 def load_part(*args, **kwargs):
