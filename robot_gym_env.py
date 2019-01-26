@@ -111,6 +111,7 @@ class RobotGymEnv(gym.Env):
 
         self._last_status = 0
         self._step_counter = 0
+        self._total_reward = 0
         self._total_return = 0
         self._paint_side = p.Side.front
         # monotone, multi-color should not be used
@@ -159,6 +160,12 @@ class RobotGymEnv(gym.Env):
         max_possible_point = 9148
         finished = False if max_possible_point > self._last_status else True
         robot_termination = self.robot.termination_request()
+
+        avg_reward = self._total_reward / self._step_counter
+        # expected length 300
+        if avg_reward < 300 / max_possible_point:
+            return True
+
         return finished or robot_termination or self._step_counter > RobotGymEnv.EPISODE_MAX_LENGTH - 1
 
     def _augmented_observation(self):
@@ -173,16 +180,22 @@ class RobotGymEnv(gym.Env):
         # Normalize the reward
         reward = reward / 100
         self._last_status = current_status
-        return reward
+        # encourage long episode
+        extra_reward = 0
+        if self._step_counter > 99 and self._step_counter % 100 == 0:
+            extra_reward = 10
+
+        return reward + extra_reward
 
     def _penalty(self):
-        time_step_penalty = 0.2
+        time_step_penalty = 0  # 0.2
         off_part_penalty = self.robot.off_part_penalty
         return time_step_penalty + off_part_penalty
 
     def step(self, action):
         self.robot.apply_action(action, self._part_id, self._paint_color, self._paint_side)
         reward = self._reward()
+        self._total_reward += reward
         penalty = self._penalty()
         actual_reward = reward - penalty
         done = self._termination()
@@ -205,6 +218,7 @@ class RobotGymEnv(gym.Env):
         self.robot.reset(start_point)
         self._step_counter = 0
         self._total_return = 0
+        self._total_reward = 0
         p.reset_part(self._part_id, self._paint_side, self._paint_color, painted_percent, painted_mode)
         self._last_status = p.get_job_status(self._part_id, self._paint_side, self._paint_color)
         return self._augmented_observation()
