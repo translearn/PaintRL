@@ -17,7 +17,7 @@ class PaintModel(Model):
 
     def _build_layers_v2(self, input_dict, num_outputs, options):
         fc1 = tf.layers.dense(input_dict['obs'], 20, activation=tf.nn.relu, name='fc1')
-        fc2 = tf.layers.dense(fc1, 128, activation=tf.nn.relu, name='fc2')
+        fc2 = tf.layers.dense(fc1, 256, activation=tf.nn.relu, name='fc2')
         fc3 = tf.layers.dense(fc2, 128, activation=tf.nn.relu, name='fc3')
         out = tf.layers.dense(fc3, 4, activation=tf.nn.tanh, name='out')
         return out, fc3
@@ -56,7 +56,7 @@ def on_episode_end(info):
     episode.custom_metrics['total_penalty'] = episode.user_data['total_penalty']
     episode.custom_metrics['total_return'] = episode.user_data['total_reward'] - episode.user_data['total_penalty']
     print('Achieved {0:.3f} return, in which {1:.3f} reward, '
-          '{2:.3f} penalty in this episode:'.format(episode.custom_metrics['total_return'],
+          '{2:.3f} penalty in this episode.'.format(episode.custom_metrics['total_return'],
                                                     episode.custom_metrics['total_reward'],
                                                     episode.custom_metrics['total_penalty']))
 
