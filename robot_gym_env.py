@@ -180,6 +180,7 @@ class RobotGymEnv(gym.Env):
         # Normalize the reward
         reward = reward / 100
         self._last_status = current_status
+        self._total_reward += reward
         # encourage long episode
         extra_reward = 0
         if self._step_counter > 99 and self._step_counter % 100 == 0:
@@ -195,7 +196,6 @@ class RobotGymEnv(gym.Env):
     def step(self, action):
         self.robot.apply_action(action, self._part_id, self._paint_color, self._paint_side)
         reward = self._reward()
-        self._total_reward += reward
         penalty = self._penalty()
         actual_reward = reward - penalty
         done = self._termination()
