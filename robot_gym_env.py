@@ -163,7 +163,7 @@ class RobotGymEnv(gym.Env):
 
         avg_reward = self._total_reward / self._step_counter
         # expected length 300
-        if avg_reward < 300 * 100 / max_possible_point:
+        if avg_reward < max_possible_point / (300 * 100):
             return True
 
         return finished or robot_termination or self._step_counter > RobotGymEnv.EPISODE_MAX_LENGTH - 1
