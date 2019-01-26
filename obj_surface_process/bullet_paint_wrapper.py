@@ -42,6 +42,14 @@ def _clip_to_01_np(v):
     return np.float64(v)
 
 
+def normalize(v, tolerance=0.00001):
+    mag2 = sum(n * n for n in v)
+    if abs(mag2 - 1.0) > tolerance:
+        mag = np.sqrt(mag2)
+        v = tuple(n / mag for n in v)
+    return v
+
+
 class Side(enum.Enum):
     """First define only two sides for each part"""
     front = 1
@@ -133,6 +141,7 @@ class BarycentricInterpolator:
         denom = (self._d00 * self._d11 - self._d01 * self._d01)
         self._inv_denom = 1.0 / denom if denom != 0 else 0
 
+        self.area = self._get_area()
         self.area_valid = self._valid_area()
 
         self._uva = None
@@ -162,9 +171,11 @@ class BarycentricInterpolator:
             return -1, -1, -1
         return u, v, w
 
+    def _get_area(self):
+        return np.linalg.norm(np.cross(self._v0, self._v1)) / 2
+
     def _valid_area(self):
-        area = np.linalg.norm(np.cross(self._v0, self._v1)) / 2
-        return area >= BarycentricInterpolator.MIN_AREA
+        return self.area >= BarycentricInterpolator.MIN_AREA
 
     def get_min_uvw(self, point):
         bary_a, bary_b, bary_c = self._get_bary_coordinate(point)
@@ -497,7 +508,7 @@ class Part:
             self.init_texture = self.texture_pixels.copy()
             self._build_kd_tree()
 
-    def _correct_bary_normals(self):
+    def _correct_bary_normals_with_conv_hull(self):
         hull = ConvHull(self.vertices, self.vertices_kd_tree, AXES[self.non_principle_axis], self.principle_axes)
         hull.separate_by_side(self.profile.keys())
         for bary in self.bary_list:
@@ -508,6 +519,47 @@ class Part:
                         or relative_pose[1] <= 0.01 or relative_pose[1] >= 0.99:
                     continue
                 hull.correct_bary_normal(bary)
+
+    def _smooth_bary_normals_with_neighbors(self, is_debug=False):
+        for side in self.profile:
+            center_points = []
+            for bary in self.bary_list:
+                if side == bary.get_side():
+                    center_points.append(bary.center_point)
+                else:
+                    center_points.append(Part.IRRELEVANT_POSE)
+            point_kd_tree = cKDTree(center_points)
+            for i, bary in enumerate(self.bary_list):
+                if side == bary.get_side():
+                    neighbor_barys = point_kd_tree.query(bary.center_point, k=5)[1]
+                    for b in neighbor_barys:
+                        normal_angle = _get_included_angle(self.bary_list[b].get_normal(), bary.get_normal())
+                        if abs(normal_angle) > MAX_ANGLE_DIFF / 6:
+                            if is_debug:
+                                self._debug_bary(b, bary)
+                            else:
+                                self._smooth_normal(bary, i, point_kd_tree)
+                            break
+
+    def _smooth_normal(self, bary, index, point_kd_tree):
+        nearest_barys = point_kd_tree.query_ball_point(bary.center_point, 0.05)
+        # normals = [self.bary_list[bary_index].get_normal() for bary_index
+        #            in nearest_barys if bary_index != index]
+        normals = []
+        for bary_index in nearest_barys:
+            if bary_index != index:
+                normal = self.bary_list[bary_index].get_normal()
+                weighted_normal = [self.bary_list[bary_index].area * i for i in normal]
+                normals.append(weighted_normal)
+        avg_normal = np.average(normals, 0)
+        correct_norm = normalize(avg_normal)
+        bary.correct_normal(correct_norm)
+
+    def _debug_bary(self, index, bary):
+        bary.add_debug_info()
+        bary.draw_face_normal()
+        self.bary_list[index].add_debug_info()
+        self.bary_list[index].draw_face_normal()
 
     def reset_part(self, side, color, percent, mode):
         self.texture_pixels = self.init_texture.copy()
@@ -564,13 +616,19 @@ class Part:
 
         return self._start_points[side] + start_points
 
-    def set_ranges_along_principle(self, ranges):
-        self.ranges = ranges
+    def _correct_bary_normals(self):
+        self._correct_bary_normals_with_conv_hull()
+        self._smooth_bary_normals_with_neighbors()
+        # self._smooth_bary_normals_with_neighbors(is_debug=True)
+
+    def post_setup(self):
         self._length_width_ratio = (self.ranges[0][1] - self.ranges[0][0]) / (self.ranges[1][1] - self.ranges[1][0])
         self._writer = TextWriter(self.urdf_id, self.principle_axes, self.ranges)
-        for side in self.profile:
-            self.set_grid_dict(side)
+        self._set_grid_dict()
         self._correct_bary_normals()
+
+    def set_ranges_along_principle(self, ranges):
+        self.ranges = ranges
 
     def _get_grid_index_2(self, val_axis_2):
         axis2_relative = (val_axis_2 - self.ranges[1][0]) / (self.ranges[1][1] - self.ranges[1][0])
@@ -597,7 +655,8 @@ class Part:
         current_side = _get_side([-i for i in normal], self.front_normal)
         point = list(point)
         delta_2 = delta_axis2 * self._length_width_ratio
-        delta_1 = self._get_delta_1(point, current_side, delta_axis1, delta_2)
+        # delta_1 = self._get_delta_1(point, current_side, delta_axis1, delta_2)
+        delta_1 = delta_axis1
         point[self.principle_axes[0]] += delta_1
         point[self.principle_axes[1]] += delta_2
         end_point = [a + b for a, b in zip(point, normal)]
@@ -645,31 +704,32 @@ class Part:
             if not result[0][0] == self.urdf_id:
                 return current_boundary
 
-    def set_grid_dict(self, side):
-        grid_dict = {}
-        axis_1, axis_2 = self.principle_axes[0], self.principle_axes[1]
-        sorted_list = sorted(self.vertices_kd_tree[side].data, key=lambda v: v[axis_2])
-        sorted_list = [item for item in sorted_list if item[0] != Part.IRRELEVANT_POSE[0]]
-        traverse_index = 0
-        axis2_range = self.ranges[1][1] - self.ranges[1][0]
-        step_size = axis2_range / Part.GRID_GRANULARITY
-        for i in range(Part.GRID_GRANULARITY):
-            current_traverse_index = traverse_index
-            current_step_max = self.ranges[1][0] + (i + 1) * step_size
-            for index in range(current_traverse_index, len(sorted_list)):
-                if sorted_list[index][axis_2] >= current_step_max:
-                    target_list = sorted_list[current_traverse_index: index]
-                    sorted_target_list = sorted(target_list, key=lambda x: x[self.principle_axes[0]])
-                    range_min = self._get_exact_boundary(sorted_target_list[0])
-                    range_max = self._get_exact_boundary(sorted_target_list[-1], is_min=False)
-                    grid_dict[i] = (range_min, range_max)
-                    traverse_index = index
-                    break
-            else:
-                grid_dict[i] = (0, 0)
-        self._grid_dict[side] = grid_dict
-        self._grid_range[side] = {key: (value[1] - value[0]) for key, value in grid_dict.items()}
-        self._max_grid_size[side] = max(self._grid_range[side].values())
+    def _set_grid_dict(self):
+        for side in self.profile:
+            grid_dict = {}
+            axis_1, axis_2 = self.principle_axes[0], self.principle_axes[1]
+            sorted_list = sorted(self.vertices_kd_tree[side].data, key=lambda v: v[axis_2])
+            sorted_list = [item for item in sorted_list if item[0] != Part.IRRELEVANT_POSE[0]]
+            traverse_index = 0
+            axis2_range = self.ranges[1][1] - self.ranges[1][0]
+            step_size = axis2_range / Part.GRID_GRANULARITY
+            for i in range(Part.GRID_GRANULARITY):
+                current_traverse_index = traverse_index
+                current_step_max = self.ranges[1][0] + (i + 1) * step_size
+                for index in range(current_traverse_index, len(sorted_list)):
+                    if sorted_list[index][axis_2] >= current_step_max:
+                        target_list = sorted_list[current_traverse_index: index]
+                        sorted_target_list = sorted(target_list, key=lambda x: x[self.principle_axes[0]])
+                        range_min = self._get_exact_boundary(sorted_target_list[0])
+                        range_max = self._get_exact_boundary(sorted_target_list[-1], is_min=False)
+                        grid_dict[i] = (range_min, range_max)
+                        traverse_index = index
+                        break
+                else:
+                    grid_dict[i] = (0, 0)
+            self._grid_dict[side] = grid_dict
+            self._grid_range[side] = {key: (value[1] - value[0]) for key, value in grid_dict.items()}
+            self._max_grid_size[side] = max(self._grid_range[side].values())
 
     def get_normalized_pose(self, side, pose):
         axis1_real = pose[self.principle_axes[0]]
@@ -913,9 +973,7 @@ def _cache_obj(urdf_obj, obj_path):
         corner_points, ranges = _get_corner_points_ranges(global_v_array, urdf_obj.principle_axes)
         urdf_obj.set_start_points(corner_points)
         urdf_obj.set_ranges_along_principle(ranges)
-        # hull = ConvHull(global_v_array)
-        # hull.set_normal(urdf_obj.front_normal)
-        # hull.separate_by_side(Side.back)
+        urdf_obj.post_setup()
 
 
 def load_part(*args, **kwargs):

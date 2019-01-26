@@ -12,21 +12,13 @@ def _get_target_projection_params(projection_distance):
     return radius, resolution, target_ray_plane
 
 
-def _normalize(v, tolerance=0.00001):
-    mag2 = sum(n * n for n in v)
-    if abs(mag2 - 1.0) > tolerance:
-        mag = math.sqrt(mag2)
-        v = tuple(n / mag for n in v)
-    return v
-
-
 def get_pose_orn(pose, orn):
     old_z = (0, 0, 1)
     new_z = orn
     xyz = list(np.cross(old_z, new_z))
     w = float(1 + np.dot(old_z, new_z))
     xyz.append(w)
-    orn = _normalize(xyz)
+    orn = p.normalize(xyz)
     return pose, orn
 
 
@@ -55,7 +47,7 @@ def _regularize_pose_orn(old_pos, old_orn, new_pos, new_orn, target_len):
         pose = [a + b for a, b in zip(old_pos, diff_vec)]
         orn = [a * ratio_old + b * ratio_new for a, b in zip(old_orn, new_orn)]
         # orn = new_orn
-        orn = _normalize(orn)
+        orn = p.normalize(orn)
         return pose, orn
     else:
         ratio_old = actual_len / target_len
@@ -63,7 +55,7 @@ def _regularize_pose_orn(old_pos, old_orn, new_pos, new_orn, target_len):
         pose = new_pos
         orn = [a * ratio_old + b * ratio_new for a, b in zip(old_orn, new_orn)]
         # orn = new_orn
-        orn = _normalize(orn)
+        orn = p.normalize(orn)
         return pose, orn
 
 
