@@ -533,6 +533,8 @@ class Part:
                 if side == bary.get_side():
                     neighbor_barys = point_kd_tree.query(bary.center_point, k=5)[1]
                     for b in neighbor_barys:
+                        if self.bary_list[b] is bary:
+                            continue
                         normal_angle = _get_included_angle(self.bary_list[b].get_normal(), bary.get_normal())
                         if abs(normal_angle) > MAX_ANGLE_DIFF / 6:
                             if is_debug:
@@ -870,8 +872,15 @@ def _retrieve_obj_elements(file):
 
 
 def _get_included_angle(a, b):
+    if a == b:
+        return 0
+    dot_p = np.dot(a, b)
+    if dot_p > 1:
+        dot_p = 1
+    elif dot_p < -1:
+        dot_p = -1
     # assume unified vector
-    return np.arccos(np.dot(a, b))
+    return np.arccos(dot_p)
 
 
 def _get_side(front_normal, v):
