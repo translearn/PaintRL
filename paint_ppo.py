@@ -3,7 +3,6 @@ import argparse
 import tensorflow as tf
 import ray
 import ray.tune as tune
-# from ray.tune.logger import pretty_print
 import ray.rllib.agents.ppo as ppo
 from ray.rllib.models import ModelCatalog, Model
 from ray.rllib.rollout import rollout
@@ -157,12 +156,10 @@ if __name__ == '__main__':
             #     break
             else:
                 print('current training step:{}'.format(i))
-                print('maximum reward currently:{}'.format(res['episode_reward_max']))
+                print('maximum reward currently:{0:.3f}'.format(res['episode_reward_max']))
     else:
         agent = make_ppo_env(is_train=False)
         agent.restore(args.path)
-        # try to use the model
-        # try the rollout function
         rollout(agent, 'robot_gym_env', 200)
 
     # trials = tune.run_experiments(configuration)
