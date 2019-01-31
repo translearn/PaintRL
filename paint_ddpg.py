@@ -103,20 +103,18 @@ def make_ddpg_env(is_train=True, with_lr_schedule=False):
         'actor_hiddens': [256, 128],
         'critic_hiddens': [256, 128],
 
-        'schedule_max_timesteps': 100000,
         'timesteps_per_iteration': 600,
-        'target_network_update_freq': 1000,
+        'target_network_update_freq': 10000,
         'tau': 1e-3,
-
 
         'buffer_size': 100000,
         'prioritized_replay': True,
 
-        'use_huber': True,
-        'huber_threshold': 1.0,
-        'learning_starts': 3000,
-        'sample_batch_size': 100,
-        'train_batch_size': 3200,
+        # 'use_huber': True,
+        # 'huber_threshold': 1.0,
+        'learning_starts': 5000,
+        'sample_batch_size': 50,
+        'train_batch_size': 1600,
 
 
         # 'batch_mode': 'truncate_episodes',
