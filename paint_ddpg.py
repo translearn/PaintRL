@@ -114,7 +114,7 @@ def make_ddpg_env(is_train=True, with_lr_schedule=False):
         # 'huber_threshold': 1.0,
         'learning_starts': 5000,
         'sample_batch_size': 50,
-        'train_batch_size': 1200,
+        'train_batch_size': 64,
 
 
         # 'batch_mode': 'truncate_episodes',
