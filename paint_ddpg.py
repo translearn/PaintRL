@@ -62,7 +62,7 @@ def on_train_result(info):
 
 
 def make_ddpg_env(is_train=True, with_lr_schedule=False):
-    workers = 30
+    workers = 24
     gpus_per_worker = 1 / workers
     env = {
         'urdf_root': urdf_root,
@@ -114,7 +114,7 @@ def make_ddpg_env(is_train=True, with_lr_schedule=False):
         # 'huber_threshold': 1.0,
         'learning_starts': 5000,
         'sample_batch_size': 50,
-        'train_batch_size': 1500,
+        'train_batch_size': 1200,
 
 
         # 'batch_mode': 'truncate_episodes',
