@@ -106,24 +106,19 @@ def make_ddpg_env(is_train=True, with_lr_schedule=False):
         'target_network_update_freq': 10000,
         'tau': 1e-3,
 
-        'buffer_size': 200000,
+        'buffer_size': 100000,
         'prioritized_replay': True,
 
         # 'use_huber': True,
         # 'huber_threshold': 1.0,
-        'learning_starts': 5000,
+        'learning_starts': 10000,
         'sample_batch_size': 50,
-        'train_batch_size': 128,
+        'train_batch_size': 512,
 
-
-        # 'batch_mode': 'truncate_episodes',
-        # 'observation_filter': 'NoFilter',
-        # 'vf_share_layers': True,
         'num_gpus': num_gpus,
         'num_gpus_per_worker': num_gpus / workers,
 
-        # 'sgd_minibatch_size': 64,
-        # 'num_sgd_iter': 30,
+        'compress_observations': True,
     })
 
     return ddpg_agent
