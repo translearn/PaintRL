@@ -80,7 +80,7 @@ def on_train_result(info):
 
 def make_ppo_env(is_train=True, with_lr_schedule=False):
     workers = 8
-    gpus_per_worker = 1 / 8
+    num_gpus = 1
     env = {
         'urdf_root': urdf_root,
         'with_robot': False,
@@ -94,7 +94,6 @@ def make_ppo_env(is_train=True, with_lr_schedule=False):
         env['with_robot'] = False
         env['rollout'] = True
         workers = 0
-        gpus_per_worker = 1
 
     lr_schedule = None
     if with_lr_schedule:
@@ -119,7 +118,7 @@ def make_ppo_env(is_train=True, with_lr_schedule=False):
         'observation_filter': 'NoFilter',
         'vf_share_layers': True,
         'num_gpus': 1,
-        'num_gpus_per_worker': gpus_per_worker,
+        'num_gpus_per_worker': num_gpus / workers,
         'lr_schedule': lr_schedule,
         'sample_batch_size': 200,
         'train_batch_size': 1600,
