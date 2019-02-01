@@ -62,7 +62,7 @@ def on_train_result(info):
 
 
 def make_ddpg_env(is_train=True, with_lr_schedule=False):
-    workers = 8
+    workers = 6
     num_gpus = 1
     env = {
         'urdf_root': urdf_root,
