@@ -130,7 +130,7 @@ if __name__ == '__main__':
     parser.add_argument('--path', type=str, default='/home/pyang/ray_results/')
     parser.add_argument('--warm-start', type=bool, default=False)
     args = parser.parse_args()
-    ray.init()
+    ray.init(object_store_memory=int(5e9), redis_max_memory=int(3.5e9))
 
     if args.mode == 'train':
         # counter = 1
