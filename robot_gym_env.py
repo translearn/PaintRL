@@ -175,15 +175,18 @@ class RobotGymEnv(gym.Env):
         self._last_status = current_status
         return reward
 
-    def _penalty(self):
+    def _penalty(self, paint_succeed_rate):
         time_step_penalty = 0.2
         off_part_penalty = self.robot.off_part_penalty
-        return time_step_penalty + off_part_penalty
+        overlap_penalty = 0
+        if paint_succeed_rate < 0.5:
+            overlap_penalty = 0.2
+        return time_step_penalty + off_part_penalty + overlap_penalty
 
     def step(self, action):
-        self.robot.apply_action(action, self._part_id, self._paint_color, self._paint_side)
+        paint_succeed_rate = self.robot.apply_action(action, self._part_id, self._paint_color, self._paint_side)
         reward = self._reward()
-        penalty = self._penalty()
+        penalty = self._penalty(paint_succeed_rate)
         actual_reward = reward - penalty
         done = self._termination()
         observation = self._augmented_observation()
@@ -244,10 +247,10 @@ if __name__ == '__main__':
                      renders=True, render_video=False, rollout=True) as env:
         # for _ in range(10):
         #     env.step([0, 1])
-        env.step([0, 1])
-        env.step([0, 1])
-        env.step([0, 1])
-        env.step([1, 0])
+        # env.step([0, 1])
+        # env.step([0, 1])
+        # env.step([0, 1])
+        # env.step([1, 0])
         # env.step([-1, -1])
         # env.step([-1, -1])
         # env.step([-1, -1])
@@ -256,6 +259,11 @@ if __name__ == '__main__':
         env.step([1, 1])
         env.step([1, 1])
         env.step([1, 1])
+        i = 0
+        while i <= 1:
+            env.step([i, 1])
+            env.step([-i, -1])
+            i += 0.01
         env.step([1, 1])
         env.step([1, 1])
         env.step([1, 1])

@@ -59,6 +59,30 @@ def _regularize_pose_orn(old_pos, old_orn, new_pos, new_orn, target_len):
         return pose, orn
 
 
+def cart2pol(x, y):
+    rho = np.sqrt(x**2 + y**2)
+    phi = np.arctan2(y, x)
+    return rho, phi
+
+
+def pol2cart(rho, phi):
+    x = rho * np.cos(phi)
+    y = rho * np.sin(phi)
+    return x, y
+
+
+def direction_normalize(action):
+    rho, phi = cart2pol(*action)
+    x, y = abs(action[0]), abs(action[1])
+    if x == 0 and y == 0:
+        return x, y
+    # tan_action = x / y if x < y else y / x
+    # normalized_norm = rho / np.sqrt(1 + tan_action)
+    normalized_action = pol2cart(max(x, y), phi)
+    print(np.linalg.norm(normalized_action))
+    return normalized_action
+
+
 class Robot:
 
     DELTA_X = 0.05
@@ -156,7 +180,8 @@ class Robot:
         beams = self._generate_paint_beams(show_debug_lines)
         results = p.rayTestBatch(*beams)
         points = [item[3] for item in results if item[0] != -1]
-        p.paint(part_id, points, color, paint_side)
+        succeed_rate = p.paint(part_id, points, color, paint_side)
+        return succeed_rate
 
     def _count_not_on_part(self):
         # check consecutive not on part
@@ -238,13 +263,14 @@ class Robot:
         :param color: color to be painted
         :param part_id: part id
         :param paint_side: side of the part
-        :return:
+        :return: succeed rate of paint
         """
         for i, a in enumerate(action):
             if not -1 <= a <= 1:
                 # Actually should be done by the RL framework!
                 action[i] = _clip_by_value(a)
                 # raise ValueError('Action {} out of range!'.format(action))
+        action = direction_normalize(action)
         delta_axis1 = action[0] * Robot.DELTA_X
         delta_axis2 = action[1] * Robot.DELTA_Y
         act, poses = self._get_actions(part_id, delta_axis1, delta_axis2)
@@ -261,7 +287,8 @@ class Robot:
             if not self._check_in_position(pos_orn[0]):
                 # Robot in singularity point or given point is out of working space
                 print('not in pose!')
-            self._paint(part_id, color, paint_side)
+            paint_succeed_rate = self._paint(part_id, color, paint_side)
+            return paint_succeed_rate
             # self._draw_tcp_orn()
 
 

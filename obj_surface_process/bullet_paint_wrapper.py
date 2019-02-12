@@ -385,15 +385,23 @@ class Part:
     def _get_texel(self, i, j):
         return min((i + j * self.texture_width) * 3, len(self.texture_pixels) - 4)
 
+    def _is_changed(self, texel, color):
+        return self.texture_pixels[texel] == color[0] and self.texture_pixels[texel + 1] == color[1] \
+               and self.texture_pixels[texel + 2] == color[2]
+
     def _change_pixel(self, color, i, j):
         texel = self._get_texel(i, j)
+        if self._is_changed(texel, color):
+            return False
         self.texture_pixels[texel] = color[0]
         self.texture_pixels[texel + 1] = color[1]
         self.texture_pixels[texel + 2] = color[2]
+        return True
 
     def _change_texel_color(self, color, bary, point):
         i, j = bary.get_texel(point, self.texture_width, self.texture_height)
-        self._change_pixel(color, i, j)
+        changed = self._change_pixel(color, i, j)
+        return i, j, changed
 
     def _get_closest_bary(self, point, nearest_vertex, side):
         closest_uvw = -1
@@ -431,15 +439,23 @@ class Part:
         if not points:
             return
         nearest_vertices = self.vertices_kd_tree[current_side].query(points, k=1)[1]
+        affected_pixels = []
+        succeed_counter = 0
         for i, point in enumerate(points):
             bary = self._get_closest_bary(point, nearest_vertices[i], current_side)
             if bary:
-                self._change_texel_color(color, bary, point)
+                status = self._change_texel_color(color, bary, point)
+                affected_pixels.append((status[0], status[1]))
+                if status[2]:
+                    succeed_counter += 1
                 # for bary in self.uv_map[nearest_vertices[i]]:
                 #     bary.add_debug_info()
                 #     bary.draw_face_normal()
         # _get_texture_image(self.texture_pixels, self.texture_width, self.texture_height).show()
         changeTexture(self.texture_id, self.texture_pixels, self.texture_width, self.texture_height)
+        affected_pixels = list(set(affected_pixels))
+        succeed_rate = succeed_counter / len(affected_pixels)
+        return succeed_rate
 
     def _label_part(self):
         # preprocessing all irrelevant pixels
@@ -1008,9 +1024,9 @@ def paint(urdf_id, points, color, side):
     :param points: intersection points in global coordinate
     :param color: list [r, g, b], each in range [0, 1]
     :param side: side of the part to be painted
-    :return:
+    :return: succeed rate
     """
-    _urdf_cache[urdf_id].paint(points, color, side)
+    return _urdf_cache[urdf_id].paint(points, color, side)
 
 
 def get_job_status(urdf_id, side, color):
