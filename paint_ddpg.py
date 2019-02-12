@@ -62,7 +62,7 @@ def on_train_result(info):
 
 
 def make_ddpg_env(is_train=True, with_lr_schedule=False):
-    workers = 6
+    workers = 10
     num_gpus = 1
     env = {
         'urdf_root': urdf_root,
@@ -102,18 +102,18 @@ def make_ddpg_env(is_train=True, with_lr_schedule=False):
         'actor_hiddens': [256, 128],
         'critic_hiddens': [256, 128],
 
-        'timesteps_per_iteration': 600,
+        'timesteps_per_iteration': 1000,
         'target_network_update_freq': 10000,
         'tau': 1e-3,
 
-        'buffer_size': 100000,
+        'buffer_size': 50000,
         'prioritized_replay': True,
 
         # 'use_huber': True,
         # 'huber_threshold': 1.0,
         'learning_starts': 10000,
         'sample_batch_size': 50,
-        'train_batch_size': 512,
+        'train_batch_size': 128,
 
         'num_gpus': num_gpus,
         'num_gpus_per_worker': num_gpus / workers,
@@ -130,7 +130,7 @@ if __name__ == '__main__':
     parser.add_argument('--path', type=str, default='/home/pyang/ray_results/')
     parser.add_argument('--warm-start', type=bool, default=False)
     args = parser.parse_args()
-    ray.init(object_store_memory=int(5e9), redis_max_memory=int(3.5e9))
+    ray.init(redis_address="141.3.81.142:6379")
 
     if args.mode == 'train':
         # counter = 1
