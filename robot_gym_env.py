@@ -163,7 +163,7 @@ class RobotGymEnv(gym.Env):
 
         avg_reward = self._total_reward / self._step_counter
         # expected length 300
-        if avg_reward < max_possible_point / (300 * 100):
+        if avg_reward < max_possible_point / (200 * 100):
             return True
 
         return finished or robot_termination or self._step_counter > RobotGymEnv.EPISODE_MAX_LENGTH - 1
@@ -183,14 +183,15 @@ class RobotGymEnv(gym.Env):
         self._total_reward += reward
         # encourage long episode
         extra_reward = 0
-        if self._step_counter > 99 and self._step_counter % 100 == 0:
-            extra_reward = 10
+        # if self._step_counter > 99 and self._step_counter % 100 == 0:
+        #     extra_reward = 10
 
         return reward + extra_reward
 
     def _penalty(self):
-        time_step_penalty = 0  # 0.2
+        time_step_penalty = 0.2
         off_part_penalty = self.robot.off_part_penalty
+        # path_repeat_penalty
         return time_step_penalty + off_part_penalty
 
     def step(self, action):
