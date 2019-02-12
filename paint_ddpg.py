@@ -76,7 +76,7 @@ def make_ddpg_env(is_train=True, with_lr_schedule=False):
         env['renders'] = True
         env['with_robot'] = False
         env['rollout'] = True
-        workers = 0
+        workers = 2
 
     # lr_schedule = None
     if with_lr_schedule:
@@ -116,7 +116,7 @@ def make_ddpg_env(is_train=True, with_lr_schedule=False):
         'train_batch_size': 128,
 
         'num_gpus': num_gpus,
-        'num_gpus_per_worker': num_gpus / workers,
+        'num_gpus_per_worker': num_gpus / workers if workers != 0 else 0,
 
         'compress_observations': True,
     })
@@ -130,7 +130,7 @@ if __name__ == '__main__':
     parser.add_argument('--path', type=str, default='/home/pyang/ray_results/')
     parser.add_argument('--warm-start', type=bool, default=False)
     args = parser.parse_args()
-    ray.init(redis_address="141.3.81.142:6379")
+    ray.init()
 
     if args.mode == 'train':
         # counter = 1
