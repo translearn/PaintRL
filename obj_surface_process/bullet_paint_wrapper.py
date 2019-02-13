@@ -379,6 +379,7 @@ class Part:
         self._grid_dict = {}
         self._grid_range = {}
         self._max_grid_size = {}
+        self._last_painted_pixels = []
 
         self._length_width_ratio = None
 
@@ -454,8 +455,9 @@ class Part:
         # _get_texture_image(self.texture_pixels, self.texture_width, self.texture_height).show()
         changeTexture(self.texture_id, self.texture_pixels, self.texture_width, self.texture_height)
         affected_pixels = list(set(affected_pixels))
-        succeed_rate = succeed_counter / len(affected_pixels)
-        return succeed_rate
+        valid_pixels = [pixel for pixel in affected_pixels if pixel not in self._last_painted_pixels]
+        self._last_painted_pixels = affected_pixels
+        return valid_pixels, succeed_counter
 
     def _label_part(self):
         # preprocessing all irrelevant pixels
@@ -581,6 +583,7 @@ class Part:
 
     def reset_part(self, side, color, percent, mode):
         self.texture_pixels = self.init_texture.copy()
+        self._last_painted_pixels = []
         self.initialize_texture(side, color, percent, mode)
 
     def get_texture_size(self):
@@ -1024,7 +1027,7 @@ def paint(urdf_id, points, color, side):
     :param points: intersection points in global coordinate
     :param color: list [r, g, b], each in range [0, 1]
     :param side: side of the part to be painted
-    :return: succeed rate
+    :return: succeed data
     """
     return _urdf_cache[urdf_id].paint(points, color, side)
 

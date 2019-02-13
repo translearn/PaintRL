@@ -259,11 +259,11 @@ if __name__ == '__main__':
         env.step([1, 1])
         env.step([1, 1])
         env.step([1, 1])
-        i = 0
-        while i <= 1:
-            env.step([i, 1])
-            env.step([-i, -1])
-            i += 0.01
+        # i = 0
+        # while i <= 1:
+        #     env.step([i, 1])
+        #     env.step([-i, -1])
+        #     i += 0.01
         env.step([1, 1])
         env.step([1, 1])
         env.step([1, 1])

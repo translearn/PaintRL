@@ -79,7 +79,7 @@ def direction_normalize(action):
     # tan_action = x / y if x < y else y / x
     # normalized_norm = rho / np.sqrt(1 + tan_action)
     normalized_action = pol2cart(max(x, y), phi)
-    print(np.linalg.norm(normalized_action))
+    # print(np.linalg.norm(normalized_action))
     return normalized_action
 
 
@@ -180,8 +180,8 @@ class Robot:
         beams = self._generate_paint_beams(show_debug_lines)
         results = p.rayTestBatch(*beams)
         points = [item[3] for item in results if item[0] != -1]
-        succeed_rate = p.paint(part_id, points, color, paint_side)
-        return succeed_rate
+        succeed_data = p.paint(part_id, points, color, paint_side)
+        return succeed_data
 
     def _count_not_on_part(self):
         # check consecutive not on part
@@ -274,6 +274,8 @@ class Robot:
         delta_axis1 = action[0] * Robot.DELTA_X
         delta_axis2 = action[1] * Robot.DELTA_Y
         act, poses = self._get_actions(part_id, delta_axis1, delta_axis2)
+        possible_pixels = []
+        succeeded_counter = 0
         for a, pos_orn in zip(act, poses.values()):
             if self._with_robot:
                 p.setJointMotorControlArray(self.robot_id, self._joint_indices, p.POSITION_CONTROL, a,
@@ -287,9 +289,12 @@ class Robot:
             if not self._check_in_position(pos_orn[0]):
                 # Robot in singularity point or given point is out of working space
                 print('not in pose!')
-            paint_succeed_rate = self._paint(part_id, color, paint_side)
-            return paint_succeed_rate
+            paint_succeed_data = self._paint(part_id, color, paint_side)
+            possible_pixels.extend(paint_succeed_data[0])
+            succeeded_counter += paint_succeed_data[1]
             # self._draw_tcp_orn()
+        possible_pixels = list(set(possible_pixels))
+        return succeeded_counter / len(possible_pixels)
 
 
 if __name__ == '__main__':
