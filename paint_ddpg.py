@@ -62,7 +62,7 @@ def on_train_result(info):
 
 
 def make_ddpg_env(is_train=True, with_lr_schedule=False):
-    workers = 10
+    workers = 5
     num_gpus = 1
     env = {
         'urdf_root': urdf_root,
@@ -130,7 +130,7 @@ if __name__ == '__main__':
     parser.add_argument('--path', type=str, default='/home/pyang/ray_results/')
     parser.add_argument('--warm-start', type=bool, default=False)
     args = parser.parse_args()
-    ray.init()
+    ray.init(object_store_memory=10000000000, redis_max_memory=5000000000)
 
     if args.mode == 'train':
         # counter = 1
