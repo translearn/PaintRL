@@ -294,7 +294,8 @@ class Robot:
             succeeded_counter += paint_succeed_data[1]
             # self._draw_tcp_orn()
         possible_pixels = list(set(possible_pixels))
-        return succeeded_counter / len(possible_pixels)
+        success_rate = succeeded_counter / len(possible_pixels) if possible_pixels else 0
+        return success_rate
 
 
 if __name__ == '__main__':

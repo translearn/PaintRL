@@ -438,7 +438,7 @@ class Part:
         current_side = side
         # no intersection then no paint
         if not points:
-            return 0
+            return [], 0
         nearest_vertices = self.vertices_kd_tree[current_side].query(points, k=1)[1]
         affected_pixels = []
         succeed_counter = 0
