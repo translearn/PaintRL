@@ -178,9 +178,7 @@ class RobotGymEnv(gym.Env):
     def _penalty(self, paint_succeed_rate):
         time_step_penalty = 0.2
         off_part_penalty = self.robot.off_part_penalty
-        overlap_penalty = 0
-        if paint_succeed_rate < 0.5:
-            overlap_penalty = 0.2
+        overlap_penalty = 0.2 * (1 - paint_succeed_rate)
         return time_step_penalty + off_part_penalty + overlap_penalty
 
     def step(self, action):
