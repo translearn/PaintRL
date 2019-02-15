@@ -24,12 +24,21 @@ def env_creator(env_config):
 tune.registry.register_env("testenv", env_creator)
 
 
+def on_train_result(info):
+    print('agent.train() result: {} -> {} episodes'.format(
+        info['agent'], info['result']['episodes_this_iter']))
+
+
 if __name__ == '__main__':
 
     ray.init()
 
     agent = ApexDDPGAgent(env='testenv', config={
         'num_workers': 4,
+
+        'callbacks': {
+            'on_train_result': tune.function(on_train_result),
+        },
 
         'env_config': {},
 
