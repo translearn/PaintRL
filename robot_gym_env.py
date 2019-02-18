@@ -195,18 +195,18 @@ class RobotGymEnv(gym.Env):
         return observation, actual_reward, done, {'reward': reward, 'penalty': penalty}
 
     def reset(self):
-        start_point_number = randint(0, len(self._start_points) - 1)
-        painted_percent = 0  # randint(0, 99)
-        painted_mode = randint(0, 3)
         if self._rollout:
-            start_point_number = 0
-            painted_percent = 0
-            painted_mode = 0
-        start_point = self._start_points[start_point_number]
-        self.robot.reset(start_point)
+            p.removeAllUserDebugItems()
+            p.reset_part(self._part_id, self._paint_side, self._paint_color, 0, 0)
+            start_point = self._start_points[0]
+        else:
+            painted_percent = randint(0, 49)  # 0
+            painted_mode = randint(0, 7)
+            start_point = p.reset_part(self._part_id, self._paint_side, self._paint_color,
+                                       painted_percent, painted_mode, with_start_point=True)
         self._step_counter = 0
         self._total_return = 0
-        p.reset_part(self._part_id, self._paint_side, self._paint_color, painted_percent, painted_mode)
+        self.robot.reset(start_point)
         self._last_status = p.get_job_status(self._part_id, self._paint_side, self._paint_color)
         return self._augmented_observation()
 
@@ -242,7 +242,7 @@ class RobotGymEnv(gym.Env):
 
 if __name__ == '__main__':
     with RobotGymEnv(os.path.dirname(os.path.realpath(__file__)), with_robot=False,
-                     renders=True, render_video=False, rollout=True) as env:
+                     renders=True, render_video=False, rollout=False) as env:
         # for _ in range(10):
         #     env.step([0, 1])
         # env.step([0, 1])
