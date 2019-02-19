@@ -110,6 +110,8 @@ class RobotGymEnv(gym.Env):
         self._rollout = rollout
 
         self._last_status = 0
+        self._remained_reward = 0
+        self._release_r_reward = False
         self._step_counter = 0
         self._total_return = 0
         self._paint_side = p.Side.front
@@ -158,6 +160,8 @@ class RobotGymEnv(gym.Env):
         # checked with hand 9148, the 9600 can hardly be reached!
         max_possible_point = 9148
         finished = False if max_possible_point > self._last_status else True
+        if finished:
+            self._release_r_reward = True
         robot_termination = self.robot.termination_request()
         return finished or robot_termination or self._step_counter > RobotGymEnv.EPISODE_MAX_LENGTH - 1
 
@@ -187,6 +191,8 @@ class RobotGymEnv(gym.Env):
         penalty = self._penalty(paint_succeed_rate)
         actual_reward = reward - penalty
         done = self._termination()
+        if self._release_r_reward:
+            actual_reward += self._remained_reward
         observation = self._augmented_observation()
         if not done:
             self._total_return += actual_reward
@@ -208,6 +214,8 @@ class RobotGymEnv(gym.Env):
         self._total_return = 0
         self.robot.reset(start_point)
         self._last_status = p.get_job_status(self._part_id, self._paint_side, self._paint_color)
+        self._remained_reward = self._last_status / 100
+        self._release_r_reward = False
         return self._augmented_observation()
 
     def render(self, mode='human'):
