@@ -62,7 +62,7 @@ def on_train_result(info):
 
 
 def make_ddpg_env(is_train=True, with_lr_schedule=False):
-    workers = 5
+    workers = 10
     num_gpus = 1
     env = {
         'urdf_root': urdf_root,
@@ -106,7 +106,7 @@ def make_ddpg_env(is_train=True, with_lr_schedule=False):
         'target_network_update_freq': 10000,
         'tau': 1e-3,
 
-        'buffer_size': 50000,
+        'buffer_size': 20000,
         'prioritized_replay': True,
 
         # 'use_huber': True,
@@ -116,7 +116,7 @@ def make_ddpg_env(is_train=True, with_lr_schedule=False):
         'train_batch_size': 128,
 
         'num_gpus': num_gpus,
-        'num_gpus_per_worker': num_gpus / workers if workers != 0 else 0,
+        'num_gpus_per_worker': 0,
 
         'compress_observations': True,
     })

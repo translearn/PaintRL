@@ -3,7 +3,7 @@ import argparse
 import tensorflow as tf
 import ray
 import ray.tune as tune
-import ray.rllib.agents.ppo as ppo
+import ray.rllib.agents.impala as impala
 from ray.rllib.models import ModelCatalog, Model
 from ray.rllib.rollout import rollout
 from PaintRLEnv.robot_gym_env import RobotGymEnv
@@ -78,8 +78,8 @@ def on_train_result(info):
 #         reporter(**result)
 
 
-def make_ppo_env(is_train=True, with_lr_schedule=False):
-    workers = 8
+def make_impala_env(is_train=True, with_lr_schedule=False):
+    workers = 4
     num_gpus = 1
     env = {
         'urdf_root': urdf_root,
@@ -99,9 +99,8 @@ def make_ppo_env(is_train=True, with_lr_schedule=False):
     if with_lr_schedule:
         lr_schedule = [[0, 1e-3], [1e5, 1e-7], ]
 
-    ppo_agent = ppo.PPOAgent(env='robot_gym_env', config={
+    impala_agent = impala.ImpalaAgent(env='robot_gym_env', config={
         'num_workers': workers,
-        'simple_optimizer': False,
         'callbacks': {
             'on_episode_start': tune.function(on_episode_start),
             'on_episode_step': tune.function(on_episode_step),
@@ -116,16 +115,40 @@ def make_ppo_env(is_train=True, with_lr_schedule=False):
         'env_config': env,
         'batch_mode': 'truncate_episodes',
         'observation_filter': 'NoFilter',
-        'vf_share_layers': True,
         'num_gpus': num_gpus,
-        'num_gpus_per_worker': num_gpus / workers,
+        'num_gpus_per_worker': 0,
+        'lr': 0.0005,
         'lr_schedule': lr_schedule,
-        'sample_batch_size': 200,
-        'train_batch_size': 1600,
-        'sgd_minibatch_size': 64,
+        'sample_batch_size': 50,
+        'train_batch_size': 800,
+        'min_iter_time_s': 10,
+
         'num_sgd_iter': 30,
+        "num_data_loader_buffers": 2,
+        # how many train batches should be retained for minibatching. This conf
+        # only has an effect if `num_sgd_iter > 1`.
+        "minibatch_buffer_size": 1,
+
+        # set >0 to enable experience replay. Saved samples will be replayed with
+        # a p:1 proportion to new data samples.
+        'replay_proportion': 10,
+        # number of sample batches to store for replay. The number of transitions
+        # saved total will be (replay_buffer_num_slots * sample_batch_size).
+        'replay_buffer_num_slots': 100,
+
+        # level of queuing for sampling.
+        'max_sample_requests_in_flight_per_worker': 2,
+
+        'broadcast_interval': 1,
+
+        'grad_clip': 40.0,
+
+        'opt_type': 'adam',
+
+        'vf_loss_coeff': 0.5,
+        'entropy_coeff': -0.01,
     })
-    return ppo_agent
+    return impala_agent
 
 
 if __name__ == '__main__':
@@ -137,27 +160,20 @@ if __name__ == '__main__':
     ray.init()
 
     if args.mode == 'train':
-        # counter = 1
-        agent = make_ppo_env()
+        agent = make_impala_env()
         if args.warm_start:
             agent.restore(args.path)
             print('warm started from path {}'.format(args.path))
         for i in range(10000):
-            # counter += 1
             res = agent.train()
-            # print(pretty_print(res))
             if i % 200 == 0:
                 model_path = agent.save()
                 print('model saved at:{} in step {}'.format(model_path, i))
-            # if res['episode_reward_max'] >= 9000 and res['episode_reward_mean'] >= 7500:
-            #     model_path = agent.save()
-            #     print('max rewards already reached 50%, stop training, model saved at:{}'.format(model_path))
-            #     break
             else:
                 print('current training step:{}'.format(i))
                 print('maximum reward currently:{0:.3f}'.format(res['episode_reward_max']))
     else:
-        agent = make_ppo_env(is_train=False)
+        agent = make_impala_env(is_train=False)
         agent.restore(args.path)
         rollout(agent, 'robot_gym_env', 200)
 

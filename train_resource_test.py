@@ -34,7 +34,7 @@ if __name__ == '__main__':
     ray.init()
 
     agent = ApexDDPGAgent(env='testenv', config={
-        'num_workers': 4,
+        'num_workers': 20,
 
         'callbacks': {
             'on_train_result': tune.function(on_train_result),
@@ -60,8 +60,8 @@ if __name__ == '__main__':
         'sample_batch_size': 50,
         'train_batch_size': 64,
 
-        'num_gpus': 1,
-        'num_gpus_per_worker': 1 / 4,
+        'num_gpus': 2,
+        'num_gpus_per_worker': 0,
 
         'compress_observations': True,
     })
