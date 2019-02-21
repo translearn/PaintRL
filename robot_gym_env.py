@@ -180,9 +180,9 @@ class RobotGymEnv(gym.Env):
         return reward
 
     def _penalty(self, paint_succeed_rate):
-        time_step_penalty = 0.2
+        time_step_penalty = 0.1
         off_part_penalty = self.robot.off_part_penalty
-        overlap_penalty = 0.2 * (1 - paint_succeed_rate)
+        overlap_penalty = 0.1 * (1 - paint_succeed_rate)
         return time_step_penalty + off_part_penalty + overlap_penalty
 
     def step(self, action):
@@ -206,7 +206,7 @@ class RobotGymEnv(gym.Env):
             p.reset_part(self._part_id, self._paint_side, self._paint_color, 0, 0)
             start_point = self._start_points[0]
         else:
-            painted_percent = randint(0, 49)  # 0
+            painted_percent = 0  # randint(0, 49)
             painted_mode = randint(0, 7)
             start_point = p.reset_part(self._part_id, self._paint_side, self._paint_color,
                                        painted_percent, painted_mode, with_start_point=True)

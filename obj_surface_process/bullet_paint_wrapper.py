@@ -623,7 +623,6 @@ class Part:
 
     def get_start_points(self, side):
         # return self._start_points[side]
-        start_pos = []
         start_points = []
         axis_2_value = [item[0][self.principle_axes[1]] for item in self._start_points[side]]
         axis_2_max, axis_2_min = max(axis_2_value), min(axis_2_value)
@@ -636,13 +635,40 @@ class Part:
                         grid_range[1] - center_point[self.principle_axes[0]] >= MIN_PAINT_DIAMETER and \
                         axis_2_min <= center_point[self.principle_axes[1]] <= axis_2_max:
                     orn = [-i for i in bary.get_normal()]
-                    start_pos.append(hook_point)
                     start_points.append([hook_point, orn])
                     # bary.add_debug_info()
                     # bary.draw_face_normal()
+        start_points, start_pos = self._get_edge_start_points(start_points, side)
         self._start_points[side].extend(start_points)
         self._start_pos[side] = cKDTree(start_pos)
         return self._start_points[side]
+
+    def _get_edge_start_points(self, points, side):
+        point_grids = {}
+        start_points = []
+        for point, orn in points:
+            grid_index = self._get_grid_index_2(point[self.principle_axes[1]])
+            if grid_index not in point_grids:
+                point_grids[grid_index] = []
+            point_grids[grid_index].append([point, orn])
+
+        max_grid_index = max(point_grids.keys())
+        min_grid_index = min(point_grids.keys())
+        for index in point_grids:
+            if index in (max_grid_index, min_grid_index):
+                start_points.extend(point_grids[index])
+            else:
+                sorted_points = sorted(point_grids[index], key=lambda v: v[0][self.principle_axes[0]])
+                # filter out the fake edge points, set the threshold to 15% the range
+                x_val = sorted_points[0][0][self.principle_axes[0]]
+                if (x_val - self._grid_dict[side][index][0]) / self._grid_range[side][index] < 0.15:
+                    start_points.append(sorted_points[0])
+                x_val = sorted_points[-1][0][self.principle_axes[0]]
+                if (self._grid_dict[side][index][1] - x_val) / self._grid_range[side][index] < 0.15:
+                    start_points.append(sorted_points[-1])
+
+        start_pos = [item[0] for item in start_points]
+        return start_points, start_pos
 
     def _correct_bary_normals(self):
         self._correct_bary_normals_with_conv_hull()
