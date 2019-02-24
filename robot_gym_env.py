@@ -191,8 +191,8 @@ class RobotGymEnv(gym.Env):
         penalty = self._penalty(paint_succeed_rate)
         actual_reward = reward - penalty
         done = self._termination()
-        if self._release_r_reward:
-            actual_reward += self._remained_reward
+        # if self._release_r_reward:
+        #     actual_reward += self._remained_reward
         observation = self._augmented_observation()
         if not done:
             self._total_return += actual_reward
@@ -208,8 +208,11 @@ class RobotGymEnv(gym.Env):
         else:
             painted_percent = 0  # randint(0, 49)
             painted_mode = randint(0, 7)
-            start_point = p.reset_part(self._part_id, self._paint_side, self._paint_color,
-                                       painted_percent, painted_mode, with_start_point=True)
+            # start_point = p.reset_part(self._part_id, self._paint_side, self._paint_color,
+            #                            painted_percent, painted_mode, with_start_point=True)
+            p.reset_part(self._part_id, self._paint_side, self._paint_color,
+                         painted_percent, painted_mode, with_start_point=False)
+            start_point = self._start_points[randint(0, len(self._start_points) - 1)]
         self._step_counter = 0
         self._total_return = 0
         self.robot.reset(start_point)

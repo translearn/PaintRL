@@ -588,7 +588,10 @@ class Part:
     def reset_part(self, side, color, percent, mode, with_start_point=False):
         self.texture_pixels = self.init_texture.copy()
         self._last_painted_pixels = []
-        return self.initialize_texture(side, color, percent, mode, with_start_point)
+        if with_start_point:
+            return self.initialize_texture(side, color, percent, mode, with_start_point)
+        else:
+            return None
 
     def get_texture_size(self):
         return self.texture_width, self.texture_height
