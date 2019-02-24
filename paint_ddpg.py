@@ -96,7 +96,7 @@ def make_ddpg_env(is_train=True, with_lr_schedule=False):
         'env_config': env,
 
         'twin_q': True,
-        'policy_delay': 2,
+        'policy_delay': 1,
         'smooth_target_policy': True,
 
         'actor_hiddens': [256, 128],
@@ -113,7 +113,7 @@ def make_ddpg_env(is_train=True, with_lr_schedule=False):
         # 'huber_threshold': 1.0,
         'learning_starts': 10000,
         'sample_batch_size': 50,
-        'train_batch_size': 128,
+        'train_batch_size': 256,
 
         'num_gpus': num_gpus,
         'num_gpus_per_worker': 0,
