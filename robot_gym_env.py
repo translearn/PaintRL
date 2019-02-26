@@ -110,6 +110,8 @@ class RobotGymEnv(gym.Env):
         self._rollout = rollout
 
         self._last_status = 0
+        self._remained_reward = 0
+        self._release_r_reward = False
         self._step_counter = 0
         self._total_reward = 0
         self._total_return = 0
@@ -159,6 +161,8 @@ class RobotGymEnv(gym.Env):
         # checked with hand 9148, the 9600 can hardly be reached!
         max_possible_point = 9148
         finished = False if max_possible_point > self._last_status else True
+        if finished:
+            self._release_r_reward = True
         robot_termination = self.robot.termination_request()
 
         avg_reward = self._total_reward / self._step_counter
@@ -188,18 +192,20 @@ class RobotGymEnv(gym.Env):
 
         return reward + extra_reward
 
-    def _penalty(self):
-        time_step_penalty = 0.2
+    def _penalty(self, paint_succeed_rate):
+        time_step_penalty = 0.1
         off_part_penalty = self.robot.off_part_penalty
-        # path_repeat_penalty
-        return time_step_penalty + off_part_penalty
+        overlap_penalty = 0.1 * (1 - paint_succeed_rate)
+        return time_step_penalty + off_part_penalty + overlap_penalty
 
     def step(self, action):
-        self.robot.apply_action(action, self._part_id, self._paint_color, self._paint_side)
+        paint_succeed_rate = self.robot.apply_action(action, self._part_id, self._paint_color, self._paint_side)
         reward = self._reward()
-        penalty = self._penalty()
+        penalty = self._penalty(paint_succeed_rate)
         actual_reward = reward - penalty
         done = self._termination()
+        # if self._release_r_reward:
+        #     actual_reward += self._remained_reward
         observation = self._augmented_observation()
         if not done:
             self._total_return += actual_reward
@@ -208,20 +214,25 @@ class RobotGymEnv(gym.Env):
         return observation, actual_reward, done, {'reward': reward, 'penalty': penalty}
 
     def reset(self):
-        start_point_number = randint(0, len(self._start_points) - 1)
-        painted_percent = 0  # randint(0, 99)
-        painted_mode = randint(0, 3)
         if self._rollout:
-            start_point_number = 0
-            painted_percent = 0
-            painted_mode = 0
-        start_point = self._start_points[start_point_number]
-        self.robot.reset(start_point)
+            p.removeAllUserDebugItems()
+            p.reset_part(self._part_id, self._paint_side, self._paint_color, 0, 0)
+            start_point = self._start_points[0]
+        else:
+            painted_percent = 0  # randint(0, 49)
+            painted_mode = randint(0, 7)
+            # start_point = p.reset_part(self._part_id, self._paint_side, self._paint_color,
+            #                            painted_percent, painted_mode, with_start_point=True)
+            p.reset_part(self._part_id, self._paint_side, self._paint_color,
+                         painted_percent, painted_mode, with_start_point=False)
+            start_point = self._start_points[randint(0, len(self._start_points) - 1)]
         self._step_counter = 0
         self._total_return = 0
         self._total_reward = 0
-        p.reset_part(self._part_id, self._paint_side, self._paint_color, painted_percent, painted_mode)
+        self.robot.reset(start_point)
         self._last_status = p.get_job_status(self._part_id, self._paint_side, self._paint_color)
+        self._remained_reward = self._last_status / 100
+        self._release_r_reward = False
         return self._augmented_observation()
 
     def render(self, mode='human'):
@@ -256,13 +267,13 @@ class RobotGymEnv(gym.Env):
 
 if __name__ == '__main__':
     with RobotGymEnv(os.path.dirname(os.path.realpath(__file__)), with_robot=False,
-                     renders=True, render_video=False, rollout=True) as env:
+                     renders=True, render_video=False, rollout=False) as env:
         # for _ in range(10):
         #     env.step([0, 1])
-        env.step([0, 1])
-        env.step([0, 1])
-        env.step([0, 1])
-        env.step([1, 0])
+        # env.step([0, 1])
+        # env.step([0, 1])
+        # env.step([0, 1])
+        # env.step([1, 0])
         # env.step([-1, -1])
         # env.step([-1, -1])
         # env.step([-1, -1])
@@ -271,6 +282,11 @@ if __name__ == '__main__':
         env.step([1, 1])
         env.step([1, 1])
         env.step([1, 1])
+        # i = 0
+        # while i <= 1:
+        #     env.step([i, 1])
+        #     env.step([-i, -1])
+        #     i += 0.01
         env.step([1, 1])
         env.step([1, 1])
         env.step([1, 1])

@@ -5,6 +5,7 @@ the changeTexture function will be called implicitly as long as the new method p
 """
 import os
 import enum
+from random import randint
 from pybullet import *
 import xml.etree.ElementTree as Et
 import numpy as np
@@ -351,6 +352,8 @@ class Part:
     DISTANCE_FACTOR = 1
     # Refine the feedback of the end effector pose to grid representation, prevent part overfitting
     GRID_GRANULARITY = 100
+    MODE_SIGN = {0: [1, 0], 1: [1, -1], 2: [0, -1], 3: [-1, -1],
+                 4: [-1, 0], 5: [-1, 1], 6: [0, 1], 7: [1, 1]}
     """
     Store the loaded urdf cache and its correspondent change texture parameters,
     extract the pixels on the part to be painted.
@@ -368,6 +371,7 @@ class Part:
         self.texture_pixels = None
         self.init_texture = None
         self._start_points = {}
+        self._start_pos = {}
         self.profile = {}
         self.profile_dicts = {}
         self.principle_axes = None
@@ -379,21 +383,30 @@ class Part:
         self._grid_dict = {}
         self._grid_range = {}
         self._max_grid_size = {}
+        self._last_painted_pixels = []
 
         self._length_width_ratio = None
 
     def _get_texel(self, i, j):
         return min((i + j * self.texture_width) * 3, len(self.texture_pixels) - 4)
 
+    def _is_changed(self, texel, color):
+        return self.texture_pixels[texel] == color[0] and self.texture_pixels[texel + 1] == color[1] \
+               and self.texture_pixels[texel + 2] == color[2]
+
     def _change_pixel(self, color, i, j):
         texel = self._get_texel(i, j)
+        if self._is_changed(texel, color):
+            return False
         self.texture_pixels[texel] = color[0]
         self.texture_pixels[texel + 1] = color[1]
         self.texture_pixels[texel + 2] = color[2]
+        return True
 
     def _change_texel_color(self, color, bary, point):
         i, j = bary.get_texel(point, self.texture_width, self.texture_height)
-        self._change_pixel(color, i, j)
+        changed = self._change_pixel(color, i, j)
+        return i, j, changed
 
     def _get_closest_bary(self, point, nearest_vertex, side):
         closest_uvw = -1
@@ -429,17 +442,26 @@ class Part:
         current_side = side
         # no intersection then no paint
         if not points:
-            return
+            return [], 0
         nearest_vertices = self.vertices_kd_tree[current_side].query(points, k=1)[1]
+        affected_pixels = []
+        succeed_counter = 0
         for i, point in enumerate(points):
             bary = self._get_closest_bary(point, nearest_vertices[i], current_side)
             if bary:
-                self._change_texel_color(color, bary, point)
+                status = self._change_texel_color(color, bary, point)
+                affected_pixels.append((status[0], status[1]))
+                if status[2]:
+                    succeed_counter += 1
                 # for bary in self.uv_map[nearest_vertices[i]]:
                 #     bary.add_debug_info()
                 #     bary.draw_face_normal()
         # _get_texture_image(self.texture_pixels, self.texture_width, self.texture_height).show()
         changeTexture(self.texture_id, self.texture_pixels, self.texture_width, self.texture_height)
+        affected_pixels = list(set(affected_pixels))
+        valid_pixels = [pixel for pixel in affected_pixels if pixel not in self._last_painted_pixels]
+        self._last_painted_pixels = affected_pixels
+        return valid_pixels, succeed_counter
 
     def _label_part(self):
         # preprocessing all irrelevant pixels
@@ -563,9 +585,13 @@ class Part:
         self.bary_list[index].add_debug_info()
         self.bary_list[index].draw_face_normal()
 
-    def reset_part(self, side, color, percent, mode):
+    def reset_part(self, side, color, percent, mode, with_start_point=False):
         self.texture_pixels = self.init_texture.copy()
-        self.initialize_texture(side, color, percent, mode)
+        self._last_painted_pixels = []
+        if with_start_point:
+            return self.initialize_texture(side, color, percent, mode, with_start_point)
+        else:
+            return None
 
     def get_texture_size(self):
         return self.texture_width, self.texture_height
@@ -615,8 +641,37 @@ class Part:
                     start_points.append([hook_point, orn])
                     # bary.add_debug_info()
                     # bary.draw_face_normal()
+        start_points, start_pos = self._get_edge_start_points(start_points, side)
+        self._start_points[side].extend(start_points)
+        self._start_pos[side] = cKDTree(start_pos)
+        return self._start_points[side]
 
-        return self._start_points[side] + start_points
+    def _get_edge_start_points(self, points, side):
+        point_grids = {}
+        start_points = []
+        for point, orn in points:
+            grid_index = self._get_grid_index_2(point[self.principle_axes[1]])
+            if grid_index not in point_grids:
+                point_grids[grid_index] = []
+            point_grids[grid_index].append([point, orn])
+
+        max_grid_index = max(point_grids.keys())
+        min_grid_index = min(point_grids.keys())
+        for index in point_grids:
+            if index in (max_grid_index, min_grid_index):
+                start_points.extend(point_grids[index])
+            else:
+                sorted_points = sorted(point_grids[index], key=lambda v: v[0][self.principle_axes[0]])
+                # filter out the fake edge points, set the threshold to 15% the range
+                x_val = sorted_points[0][0][self.principle_axes[0]]
+                if (x_val - self._grid_dict[side][index][0]) / self._grid_range[side][index] < 0.15:
+                    start_points.append(sorted_points[0])
+                x_val = sorted_points[-1][0][self.principle_axes[0]]
+                if (self._grid_dict[side][index][1] - x_val) / self._grid_range[side][index] < 0.15:
+                    start_points.append(sorted_points[-1])
+
+        start_pos = [item[0] for item in start_points]
+        return start_points, start_pos
 
     def _correct_bary_normals(self):
         self._correct_bary_normals_with_conv_hull()
@@ -671,24 +726,34 @@ class Part:
         pos, orn = self._get_hook_point(surface_point, current_side)
         return pos, orn if orn else normal
 
-    def initialize_texture(self, side, color, percent, mode=0):
+    def initialize_texture(self, side, color, percent, mode=0, with_start_point=False):
         """
         Randomly initial the texture from 4 different sides, with different percentage
+        :param with_start_point: return a start point
         :param side: part side
         :param color: target color
         :param percent: percent to be pre-painted
-        :param mode: 0 = vertical, left; 1 = vertical, right; 2 = horizontal, left; 3 = horizontal, right.
-        :return:
+        :param mode: 0 = horizontal, down; 1 = right down corner; 2 = vertical, right; 3 = right up corner;
+                     4 = horizontal, up; 5 = left up corner; 6 = vertical, left; 7 = left down corner.
+        :return: None or start point
         """
         # self.get_texture_image().show()
         color = _get_color(color)
-        sort_key = 0 if mode in (0, 1) else 1
-        sign = 1 if mode in (0, 2) else -1
-        targets = sorted(self.profile[side], key=lambda p: sign * p[sort_key])
+        sign0, sign1 = Part.MODE_SIGN[mode]
+        targets = sorted(self.profile[side], key=lambda p: sign0 * p[0] + sign1 * p[1])
         quantity = int(len(targets) * percent / 100)
+        i = 0
         for i in range(quantity):
             self._change_pixel(color, *targets[i])
         # self.get_texture_image().show()
+        if with_start_point:
+            rand_pixel = randint(i, len(targets) - 1)
+            nearest_point = self.profile_dicts[side][targets[rand_pixel]]
+            start_index = self._start_pos[side].query(nearest_point, k=1)[1]
+            start_point = self._start_points[side][start_index]
+            return start_point
+        else:
+            return None
 
     def _get_exact_boundary(self, point, is_min=True):
         proof_axis = self.principle_axes[0]
@@ -1008,9 +1073,9 @@ def paint(urdf_id, points, color, side):
     :param points: intersection points in global coordinate
     :param color: list [r, g, b], each in range [0, 1]
     :param side: side of the part to be painted
-    :return:
+    :return: succeed data
     """
-    _urdf_cache[urdf_id].paint(points, color, side)
+    return _urdf_cache[urdf_id].paint(points, color, side)
 
 
 def get_job_status(urdf_id, side, color):
@@ -1045,8 +1110,8 @@ def get_partial_observation(urdf_id, side, pose, color, sections=18):
     return _urdf_cache[urdf_id].get_partial_observation(side, pose, color, sections)
 
 
-def reset_part(urdf_id, side, color, percent, mode):
-    _urdf_cache[urdf_id].reset_part(side, color, percent, mode)
+def reset_part(urdf_id, side, color, percent, mode, with_start_point=False):
+    return _urdf_cache[urdf_id].reset_part(side, color, percent, mode, with_start_point)
 
 
 def write_text_info(urdf_id, action, reward, penalty, total_return, step):
