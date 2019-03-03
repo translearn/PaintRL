@@ -103,17 +103,17 @@ def make_ddpg_env(is_train=True, with_lr_schedule=False):
         'critic_hiddens': [256, 128],
 
         'timesteps_per_iteration': 1000,
-        'target_network_update_freq': 10000,
+        'target_network_update_freq': 1000,
         'tau': 1e-3,
 
-        'buffer_size': 20000,
+        'buffer_size': 200000,
         'prioritized_replay': True,
 
         # 'use_huber': True,
         # 'huber_threshold': 1.0,
         'learning_starts': 10000,
         'sample_batch_size': 50,
-        'train_batch_size': 256,
+        'train_batch_size': 512,
 
         'num_gpus': num_gpus,
         'num_gpus_per_worker': 0,
@@ -130,7 +130,7 @@ if __name__ == '__main__':
     parser.add_argument('--path', type=str, default='/home/pyang/ray_results/')
     parser.add_argument('--warm-start', type=bool, default=False)
     args = parser.parse_args()
-    ray.init(object_store_memory=10000000000, redis_max_memory=5000000000)
+    ray.init(redis_address="141.3.81.141:6379")
 
     if args.mode == 'train':
         # counter = 1
