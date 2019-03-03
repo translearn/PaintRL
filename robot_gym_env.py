@@ -100,7 +100,7 @@ class RobotGymEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array'], 'video.frames_per_second': 30}
     reward_range = (-1e5, 1e5)
     action_space = spaces.Box(np.array((-1, -1)), np.array((1, 1)), dtype=np.float32)
-    observation_space = spaces.Box(low=0.0, high=1.0, shape=(20, ), dtype=np.float64)
+    observation_space = spaces.Box(low=0.0, high=1.0, shape=(20, ), dtype=np.float32)
 
     def __init__(self, urdf_root, with_robot=True, renders=False, render_video=False, rollout=False):
         self._with_robot = with_robot

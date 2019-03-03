@@ -37,10 +37,10 @@ def _get_color(color):
 
 def _clip_to_01_np(v):
     if v < 0:
-        return np.float64(0)
+        return np.float32(0)
     if v > 1:
-        return np.float64(1)
-    return np.float64(v)
+        return np.float32(1)
+    return np.float32(v)
 
 
 def normalize(v, tolerance=0.00001):
@@ -847,7 +847,7 @@ class Part:
                 obs[phase] += weighted_distance
         max_factor = max(obs, key=obs.get)
         for phase in obs:
-            result[phase] = obs[phase] / obs[max_factor]
+            result[phase] = np.float32(obs[phase] / obs[max_factor])
         return result
 
     def write_text_info(self, action, reward, penalty, total_return, step):
