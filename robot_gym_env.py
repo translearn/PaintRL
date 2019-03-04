@@ -267,7 +267,7 @@ class RobotGymEnv(gym.Env):
 
 if __name__ == '__main__':
     with RobotGymEnv(os.path.dirname(os.path.realpath(__file__)), with_robot=False,
-                     renders=True, render_video=False, rollout=False) as env:
+                     renders=False, render_video=False, rollout=False) as env:
         # for _ in range(10):
         #     env.step([0, 1])
         # env.step([0, 1])
@@ -279,19 +279,39 @@ if __name__ == '__main__':
         # env.step([-1, -1])
         # env.step([-1, -1])
         # env.step([-1, -1])
-        env.step([1, 1])
-        env.step([1, 1])
-        env.step([1, 1])
+        # env.step([1, 1])
+        # env.step([1, 1])
+        # env.step([1, 1])
         # i = 0
         # while i <= 1:
         #     env.step([i, 1])
         #     env.step([-i, -1])
         #     i += 0.01
-        env.step([1, 1])
-        env.step([1, 1])
-        env.step([1, 1])
-        env.step([1, 1])
-        env.reset()
-        env.step([0, 1])
-        env.step([0, 1])
-        env.step([0, 1])
+        # env.step([1, 1])
+        # env.step([1, 1])
+        # env.step([1, 1])
+        # env.step([1, 1])
+        # env.reset()
+        # env.step([0, 1])
+        # env.step([0, 1])
+        # env.step([0, 1])
+        from random import uniform
+        import cProfile as Profile
+
+        pr = Profile.Profile()
+        pr.disable()
+        for i in range(10000):
+            print('currently in iteration: {}'.format(i))
+            pr.enable()
+            for j in range(50):
+                ret = env.step([uniform(-1, 1), uniform(-1, 1)])
+                if ret[2]:
+                    break
+            pr.disable()
+
+        pr.dump_stats('/home/pyang/profile.pstat')
+
+        import pstats
+
+        ps = pstats.Stats('/home/pyang/profile.pstat')
+        ps.strip_dirs().print_stats()
