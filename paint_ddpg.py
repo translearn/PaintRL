@@ -54,16 +54,12 @@ def on_train_result(info):
     info['result']['callback_ok'] = True
 
 
-# def train(config, reporter):
-#     agent = ppo.PPOAgent(config=config, env='robot_gym_env')
-#     while True:
-#         result = agent.train()
-#         reporter(**result)
+def make_ddpg_env(is_train=True):
+    conf = _make_configuration(is_train)
+    return ddpg.ApexDDPGAgent(env='robot_gym_env', config=conf)
 
 
-def make_ddpg_env(is_train=True, with_lr_schedule=False):
-    workers = 10
-    num_gpus = 1
+def _make_configuration(is_train):
     env = {
         'urdf_root': urdf_root,
         'with_robot': False,
@@ -71,19 +67,13 @@ def make_ddpg_env(is_train=True, with_lr_schedule=False):
         'render_video': False,
         'rollout': False,
     }
-
     if not is_train:
         env['renders'] = True
         env['with_robot'] = False
         env['rollout'] = True
-        workers = 2
 
-    # lr_schedule = None
-    if with_lr_schedule:
-        print()
-
-    ddpg_agent = ddpg.ApexDDPGAgent(env='robot_gym_env', config={
-        'num_workers': workers,
+    conf = {
+        'num_workers': 5,
 
         'callbacks': {
             'on_episode_start': tune.function(on_episode_start),
@@ -106,22 +96,26 @@ def make_ddpg_env(is_train=True, with_lr_schedule=False):
         'target_network_update_freq': 1000,
         'tau': 1e-3,
 
-        'buffer_size': 200000,
+        'buffer_size': 20000,
         'prioritized_replay': True,
 
-        # 'use_huber': True,
-        # 'huber_threshold': 1.0,
-        'learning_starts': 10000,
+        'learning_starts': 2000,
         'sample_batch_size': 50,
         'train_batch_size': 512,
 
-        'num_gpus': num_gpus,
+        'num_gpus': 1,
         'num_gpus_per_worker': 0,
 
-        'compress_observations': True,
-    })
+        # 'compress_observations': True,
+    }
+    return conf
 
-    return ddpg_agent
+
+def train(config, reporter):
+    _agent = ddpg.ApexDDPGAgent(env='robot_gym_env', config=config)
+    while True:
+        result = _agent.train()
+        reporter(**result)
 
 
 if __name__ == '__main__':
@@ -130,29 +124,46 @@ if __name__ == '__main__':
     parser.add_argument('--path', type=str, default='/home/pyang/ray_results/')
     parser.add_argument('--warm-start', type=bool, default=False)
     args = parser.parse_args()
-    ray.init(redis_address="141.3.81.141:6379")
+    ray.init(object_store_memory=5000000000, redis_max_memory=2000000000, log_to_driver=False)
 
     if args.mode == 'train':
-        # counter = 1
-        agent = make_ddpg_env()
-        if args.warm_start:
-            agent.restore(args.path)
-            print('warm started from path {}'.format(args.path))
-        for i in range(10000):
-            # counter += 1
-            res = agent.train()
-            # print(pretty_print(res))
-            if i % 200 == 0:
-                model_path = agent.save()
-                print('model saved at:{} in step {}'.format(model_path, i))
-            # if res['episode_reward_max'] >= 9000 and res['episode_reward_mean'] >= 7500:
-            #     model_path = agent.save()
-            #     print('max rewards already reached 50%, stop training, model saved at:{}'.format(model_path))
-            #     break
-            else:
-                print('current training step:{}'.format(i))
-                print('maximum reward currently:{0:.3f}'.format(res['episode_reward_max']))
+        configuration = {
+            'paint': {
+                'run': train,
+                'stop': {
+                    'training_iteration': 10000,
+                },
+                # 'resources_per_trial': {
+                #     'cpu': 0,
+                #     'gpu': 0,
+                # },
+                'num_samples': 1,
+                'config': _make_configuration(is_train=True),
+                'checkpoint_freq': 200,
+
+            }
+        }
+        trials = tune.run_experiments(configuration)
+
     else:
         agent = make_ddpg_env(is_train=False)
         agent.restore(args.path)
         rollout(agent, 'robot_gym_env', 200)
+    #
+    # if args.mode == 'train':
+    #     agent = make_ddpg_env()
+    #     if args.warm_start:
+    #         agent.restore(args.path)
+    #         print('warm started from path {}'.format(args.path))
+    #     for i in range(10000):
+    #         res = agent.train()
+    #         if i % 200 == 0:
+    #             model_path = agent.save()
+    #             print('model saved at:{} in step {}'.format(model_path, i))
+    #         else:
+    #             print('current training step:{}'.format(i))
+    #             print('maximum reward currently:{0:.3f}'.format(res['episode_reward_max']))
+    # else:
+    #     agent = make_ddpg_env(is_train=False)
+    #     agent.restore(args.path)
+    #     rollout(agent, 'robot_gym_env', 200)
