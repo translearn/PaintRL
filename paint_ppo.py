@@ -71,13 +71,6 @@ def on_train_result(info):
     info['result']['callback_ok'] = True
 
 
-# def train(config, reporter):
-#     agent = ppo.PPOAgent(config=config, env='robot_gym_env')
-#     while True:
-#         result = agent.train()
-#         reporter(**result)
-
-
 call_backs = {
             'on_episode_start': tune.function(on_episode_start),
             'on_episode_step': tune.function(on_episode_step),

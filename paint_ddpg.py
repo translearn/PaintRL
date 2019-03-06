@@ -2,61 +2,18 @@ import os
 import argparse
 import ray
 import ray.tune as tune
-import ray.rllib.agents.ddpg as ddpg
+from ray.rllib.agents.ddpg import ApexDDPGAgent
 from ray.rllib.rollout import rollout
-from PaintRLEnv.robot_gym_env import RobotGymEnv
-
-
-def env_creator(env_config):
-    return RobotGymEnv(**env_config)
+from paint_ppo import call_backs, env_creator
 
 
 urdf_root = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'PaintRLEnv')
 tune.registry.register_env('robot_gym_env', env_creator)
 
 
-def on_episode_start(info):
-    episode = info['episode']
-    print('episode {} started'.format(episode.episode_id))
-    episode.user_data['total_reward'] = 0
-    episode.user_data['total_penalty'] = 0
-
-
-def on_episode_step(info):
-    episode = info['episode']
-    episode_info = episode.last_info_for()
-    if episode_info:
-        episode.user_data['total_reward'] += episode_info['reward']
-        episode.user_data['total_penalty'] += episode_info['penalty']
-
-
-def on_episode_end(info):
-    episode = info['episode']
-    print('episode {} ended with length {}'.format(
-        episode.episode_id, episode.length))
-    episode.custom_metrics['total_reward'] = episode.user_data['total_reward']
-    episode.custom_metrics['total_penalty'] = episode.user_data['total_penalty']
-    episode.custom_metrics['total_return'] = episode.user_data['total_reward'] - episode.user_data['total_penalty']
-    print('Achieved {0:.3f} return, in which {1:.3f} reward, '
-          '{2:.3f} penalty in this episode.'.format(episode.custom_metrics['total_return'],
-                                                    episode.custom_metrics['total_reward'],
-                                                    episode.custom_metrics['total_penalty']))
-
-
-def on_sample_end(info):
-    print('returned sample batch of size {}'.format(info['samples'].count))
-
-
-def on_train_result(info):
-    print('agent.train() result: {} -> {} episodes'.format(
-        info['agent'], info['result']['episodes_this_iter']))
-    # you can mutate the result dict to add new fields to return
-    info['result']['callback_ok'] = True
-
-
 def make_ddpg_env(is_train=True):
     conf = _make_configuration(is_train)
-    return ddpg.ApexDDPGAgent(env='robot_gym_env', config=conf)
+    return ApexDDPGAgent(env='robot_gym_env', config=conf)
 
 
 def _make_configuration(is_train):
@@ -75,13 +32,7 @@ def _make_configuration(is_train):
     conf = {
         'num_workers': 5,
 
-        'callbacks': {
-            'on_episode_start': tune.function(on_episode_start),
-            'on_episode_step': tune.function(on_episode_step),
-            'on_episode_end': tune.function(on_episode_end),
-            'on_sample_end': tune.function(on_sample_end),
-            'on_train_result': tune.function(on_train_result),
-        },
+        'callbacks': call_backs,
 
         'env_config': env,
 
@@ -105,17 +56,8 @@ def _make_configuration(is_train):
 
         'num_gpus': 1,
         'num_gpus_per_worker': 0,
-
-        # 'compress_observations': True,
     }
     return conf
-
-
-def train(config, reporter):
-    _agent = ddpg.ApexDDPGAgent(env='robot_gym_env', config=config)
-    while True:
-        result = _agent.train()
-        reporter(**result)
 
 
 if __name__ == '__main__':
@@ -129,7 +71,8 @@ if __name__ == '__main__':
     if args.mode == 'train':
         configuration = {
             'paint': {
-                'run': train,
+                'run': 'APEX_DDPG',
+                'env': 'robot_gym_env',
                 'stop': {
                     'training_iteration': 10000,
                 },
@@ -143,27 +86,9 @@ if __name__ == '__main__':
 
             }
         }
-        trials = tune.run_experiments(configuration)
+        tune.run_experiments(configuration)
 
     else:
         agent = make_ddpg_env(is_train=False)
         agent.restore(args.path)
         rollout(agent, 'robot_gym_env', 200)
-    #
-    # if args.mode == 'train':
-    #     agent = make_ddpg_env()
-    #     if args.warm_start:
-    #         agent.restore(args.path)
-    #         print('warm started from path {}'.format(args.path))
-    #     for i in range(10000):
-    #         res = agent.train()
-    #         if i % 200 == 0:
-    #             model_path = agent.save()
-    #             print('model saved at:{} in step {}'.format(model_path, i))
-    #         else:
-    #             print('current training step:{}'.format(i))
-    #             print('maximum reward currently:{0:.3f}'.format(res['episode_reward_max']))
-    # else:
-    #     agent = make_ddpg_env(is_train=False)
-    #     agent.restore(args.path)
-    #     rollout(agent, 'robot_gym_env', 200)

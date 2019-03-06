@@ -3,9 +3,8 @@ import argparse
 import ray
 import ray.tune as tune
 from ray.rllib.models import ModelCatalog
-import ray.rllib.agents.a3c as a3c
+from ray.rllib.agents.a3c import A3CAgent
 from ray.rllib.rollout import rollout
-
 from paint_ppo import call_backs, PaintModel, env_creator
 
 
@@ -16,7 +15,7 @@ tune.registry.register_env('robot_gym_env', env_creator)
 
 def make_a3c_env(is_train=True):
     conf = _make_configuration(is_train)
-    return a3c.A3CAgent(env='robot_gym_env', config=conf)
+    return A3CAgent(env='robot_gym_env', config=conf)
 
 
 def _make_configuration(is_train):
@@ -38,21 +37,11 @@ def _make_configuration(is_train):
             'custom_options': {},  # extra options to pass to your model
         },
         'num_workers': 5,
-
         'callbacks': call_backs,
-
         'env_config': env,
         'sample_batch_size': 10,
-
     }
     return conf
-
-
-def train(config, reporter):
-    _agent = a3c.A3CAgent(env='robot_gym_env', config=config)
-    while True:
-        result = _agent.train()
-        reporter(**result)
 
 
 if __name__ == '__main__':
@@ -66,7 +55,8 @@ if __name__ == '__main__':
     if args.mode == 'train':
         configuration = {
             'paint': {
-                'run': train,
+                'run': 'A3C',
+                'env': 'robot_gym_env',
                 'stop': {
                     'training_iteration': 10000,
                 },
@@ -76,7 +66,7 @@ if __name__ == '__main__':
 
             }
         }
-        trials = tune.run_experiments(configuration)
+        tune.run_experiments(configuration)
 
     else:
         agent = make_a3c_env(is_train=False)
