@@ -30,7 +30,7 @@ def _make_configuration(is_train):
         env['rollout'] = True
 
     conf = {
-        'num_workers': 5,
+        'num_workers': 10,
 
         'callbacks': call_backs,
 
@@ -47,7 +47,7 @@ def _make_configuration(is_train):
         'target_network_update_freq': 1000,
         'tau': 1e-3,
 
-        'buffer_size': 20000,
+        'buffer_size': 50000,
         'prioritized_replay': True,
 
         'learning_starts': 2000,
@@ -82,11 +82,11 @@ if __name__ == '__main__':
                 # },
                 'num_samples': 1,
                 'config': _make_configuration(is_train=True),
-                'checkpoint_freq': 200,
+                'checkpoint_freq': 100,
 
             }
         }
-        tune.run_experiments(configuration)
+        tune.run_experiments(configuration, resume=False)
 
     else:
         agent = make_ddpg_env(is_train=False)

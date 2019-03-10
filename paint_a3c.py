@@ -36,6 +36,9 @@ def _make_configuration(is_train):
             'custom_model': 'paint_model',
             'custom_options': {},  # extra options to pass to your model
         },
+        # 'model': {
+        #     'fcnet_hiddens': [256, 128],
+        # },
         'num_workers': 5,
         'callbacks': call_backs,
         'env_config': env,
@@ -62,7 +65,7 @@ if __name__ == '__main__':
                 },
                 'num_samples': 1,
                 'config': _make_configuration(is_train=True),
-                'checkpoint_freq': 200,
+                'checkpoint_freq': 100,
 
             }
         }
