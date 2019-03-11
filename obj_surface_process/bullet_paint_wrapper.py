@@ -728,7 +728,7 @@ class Part:
 
     def initialize_texture(self, side, color, percent, mode=0, with_start_point=False):
         """
-        Randomly initial the texture from 4 different sides, with different percentage
+        Randomly initial the texture from 8 different sides, with different percentage
         :param with_start_point: return a start point
         :param side: part side
         :param color: target color

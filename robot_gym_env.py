@@ -147,7 +147,7 @@ class RobotGymEnv(gym.Env):
 
     def _load_environment(self):
         p.loadURDF('plane.urdf', (0, 0, 0), useFixedBase=True)
-        self._part_id = p.load_part(self._renders, os.path.join(self._urdf_root, 'urdf', 'painting', 'door.urdf'),
+        self._part_id = p.load_part(self._renders, os.path.join(self._urdf_root, 'urdf', 'painting', 'door_lf.urdf'),
                                     (-0.4, -0.6, 0.25), useFixedBase=True)
         self._start_points = p.get_start_points(self._part_id, p.Side.front)
         self.robot = Robot(self._step_manager, 'kuka_iiwa/model_free_base.urdf', pos=(0.2, -0.2, 0),
@@ -267,32 +267,16 @@ class RobotGymEnv(gym.Env):
 
 if __name__ == '__main__':
     with RobotGymEnv(os.path.dirname(os.path.realpath(__file__)), with_robot=False,
-                     renders=False, render_video=False, rollout=False) as env:
-        # for _ in range(10):
-        #     env.step([0, 1])
-        # env.step([0, 1])
-        # env.step([0, 1])
-        # env.step([0, 1])
-        # env.step([1, 0])
-        # env.step([-1, -1])
-        # env.step([-1, -1])
-        # env.step([-1, -1])
-        # env.step([-1, -1])
-        # env.step([-1, -1])
-        # env.step([1, 1])
-        # env.step([1, 1])
-        # env.step([1, 1])
+                     renders=True, render_video=False, rollout=False) as env:
         # i = 0
         # while i <= 1:
         #     env.step([i, 1])
         #     env.step([-i, -1])
         #     i += 0.01
         # env.step([1, 1])
-        # env.step([1, 1])
-        # env.step([1, 1])
+
         # env.step([1, 1])
         # env.reset()
-        # env.step([0, 1])
         # env.step([0, 1])
         # env.step([0, 1])
         from random import uniform
