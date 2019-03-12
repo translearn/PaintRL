@@ -3,9 +3,8 @@ import argparse
 import tensorflow as tf
 import ray
 import ray.tune as tune
-import ray.rllib.agents.ppo as ppo
 from ray.rllib.models import ModelCatalog, Model
-from ray.rllib.rollout import rollout
+from ray.rllib.rollout import run
 from PaintRLEnv.robot_gym_env import RobotGymEnv
 
 
@@ -25,8 +24,6 @@ class PaintModel(Model):
 def env_creator(env_config):
     return RobotGymEnv(**env_config)
 
-
-urdf_root = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'PaintRLEnv')
 
 ModelCatalog.register_custom_model('paint_model', PaintModel)
 tune.registry.register_env('robot_gym_env', env_creator)
@@ -80,133 +77,71 @@ call_backs = {
 }
 
 
-def make_ppo_env(is_train=True, with_lr_schedule=False):
-    workers = 8
-    num_gpus = 1
+def _make_env_config(is_train=True):
     env = {
-        'urdf_root': urdf_root,
+        'urdf_root': os.path.join(os.path.dirname(os.path.realpath(__file__)), 'PaintRLEnv'),
         'with_robot': False,
         'renders': False,
         'render_video': False,
         'rollout': False,
     }
-
     if not is_train:
         env['renders'] = True
         env['with_robot'] = False
         env['rollout'] = True
-        workers = 0
+    return env
 
-    lr_schedule = None
-    if with_lr_schedule:
-        lr_schedule = [[0, 1e-3], [1e5, 1e-7], ]
 
-    ppo_agent = ppo.PPOAgent(env='robot_gym_env', config={
-        'num_workers': workers,
+def main(algorithm, config):
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--mode', type=str, default='train')
+    parser.add_argument('--checkpoint', type=str, default='/home/pyang/ray_results/paint')
+    args = parser.parse_args()
+    ray.init(object_store_memory=5000000000, redis_max_memory=2000000000, log_to_driver=False)
+    experiment_config = {
+        'paint': {
+            'run': algorithm,
+            'env': 'robot_gym_env',
+            'stop': {
+                'training_iteration': 10000,
+            },
+            'config': config,
+            'checkpoint_freq': 100,
+
+        }
+    }
+    experiment_config['paint']['config']['callbacks'] = call_backs
+    if args.mode == 'train':
+        experiment_config['paint']['config']['env_config'] = _make_env_config()
+        tune.run_experiments(experiment_config, resume=False)
+    else:
+        args.run = experiment_config['paint']['run']
+        args.env = experiment_config['paint']['env']
+        args.steps = 200
+        experiment_config['paint']['config']['env_config'] = _make_env_config(is_train=False)
+        args.config = experiment_config['paint']['config']
+        args.out = None
+        args.no_render = True
+        run(args, parser)
+
+
+if __name__ == '__main__':
+    configuration = {
+        'num_workers': 5,
+
         'simple_optimizer': False,
-        'callbacks': call_backs,
+
         'model': {
             'custom_model': 'paint_model',
             'custom_options': {},  # extra options to pass to your model
         },
-        'env_config': env,
         'batch_mode': 'truncate_episodes',
         'observation_filter': 'NoFilter',
         'vf_share_layers': True,
-        'num_gpus': num_gpus,
-        'num_gpus_per_worker': num_gpus / workers,
-        'lr_schedule': lr_schedule,
+
         'sample_batch_size': 200,
         'train_batch_size': 1600,
         'sgd_minibatch_size': 64,
         'num_sgd_iter': 30,
-    })
-    return ppo_agent
-
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', type=str, default='train')
-    parser.add_argument('--path', type=str, default='/home/pyang/ray_results/')
-    parser.add_argument('--warm-start', type=bool, default=False)
-    args = parser.parse_args()
-    ray.init()
-
-    if args.mode == 'train':
-        # counter = 1
-        agent = make_ppo_env()
-        if args.warm_start:
-            agent.restore(args.path)
-            print('warm started from path {}'.format(args.path))
-        for i in range(10000):
-            # counter += 1
-            res = agent.train()
-            # print(pretty_print(res))
-            if i % 200 == 0:
-                model_path = agent.save()
-                print('model saved at:{} in step {}'.format(model_path, i))
-            # if res['episode_reward_max'] >= 9000 and res['episode_reward_mean'] >= 7500:
-            #     model_path = agent.save()
-            #     print('max rewards already reached 50%, stop training, model saved at:{}'.format(model_path))
-            #     break
-            else:
-                print('current training step:{}'.format(i))
-                print('maximum reward currently:{0:.3f}'.format(res['episode_reward_max']))
-    else:
-        agent = make_ppo_env(is_train=False)
-        agent.restore(args.path)
-        rollout(agent, 'robot_gym_env', 200)
-
-    # trials = tune.run_experiments(configuration)
-
-    # # verify custom metrics for integration tests
-    # custom_metrics = trials[0].last_result['custom_metrics']
-    # print(custom_metrics)
-    # assert 'pole_angle_mean' in custom_metrics
-    # assert 'pole_angle_min' in custom_metrics
-    # assert 'pole_angle_max' in custom_metrics
-    # assert type(custom_metrics['pole_angle_mean']) is float
-    # assert 'callback_ok' in trials[0].last_result
-
-    # conf = ppo.DEFAULT_CONFIG.copy()
-    # configuration = {
-    #     'paint': {
-    #         'run': train,
-    #         # 'stop': {
-    #         #     'training_iteration': args.num_iters,
-    #         # },
-    #         'trial_resources': {
-    #             'cpu': 1,
-    #             'gpu': 1,
-    #         },
-    #         'num_samples': 1,
-    #         'config': {
-    #             'callbacks': {
-    #                 'on_episode_start': tune.function(on_episode_start),
-    #                 'on_episode_step': tune.function(on_episode_step),
-    #                 'on_episode_end': tune.function(on_episode_end),
-    #                 'on_sample_end': tune.function(on_sample_end),
-    #                 'on_train_result': tune.function(on_train_result),
-    #             },
-    #             'model': {
-    #                 'custom_model': 'paint_model',
-    #                 'custom_options': {},  # extra options to pass to your model
-    #             },
-    #             'env_config': {
-    #                 'urdf_root': urdf_root,
-    #                 'renders': False,
-    #                 'render_video': False,
-    #             },
-    #             'num_workers': 0,
-    #             'simple_optimizer': True,
-    #             'observation_filter': 'NoFilter',
-    #             'vf_share_layers': True,
-    #             'num_gpus': 1,
-    #             'num_gpus_per_worker': 1,
-    #             'sample_batch_size': 100,
-    #             'train_batch_size': 200,
-    #             'sgd_minibatch_size': 5,
-    #             'num_sgd_iter': 10,
-    #         },
-    #     }
-    # }
+    }
+    main('PPO', configuration)
