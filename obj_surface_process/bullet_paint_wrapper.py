@@ -44,6 +44,8 @@ def _clip_to_01_np(v):
 
 
 def normalize(v, tolerance=0.00001):
+    if type(v) == np.float64:
+        print(1)
     mag2 = sum(n * n for n in v)
     if abs(mag2 - 1.0) > tolerance:
         mag = np.sqrt(mag2)
@@ -575,9 +577,10 @@ class Part:
                 normal = self.bary_list[bary_index].get_normal()
                 weighted_normal = [self.bary_list[bary_index].area * i for i in normal]
                 normals.append(weighted_normal)
-        avg_normal = np.average(normals, 0)
-        correct_norm = normalize(avg_normal)
-        bary.correct_normal(correct_norm)
+        if normals:
+            avg_normal = np.average(normals, 0)
+            correct_norm = normalize(avg_normal)
+            bary.correct_normal(correct_norm)
 
     def _debug_bary(self, index, bary):
         bary.add_debug_info()
@@ -780,17 +783,33 @@ class Part:
             traverse_index = 0
             axis2_range = self.ranges[1][1] - self.ranges[1][0]
             step_size = axis2_range / Part.GRID_GRANULARITY
+            left_bound = right_bound = sorted_list[0]
             for i in range(Part.GRID_GRANULARITY):
                 current_traverse_index = traverse_index
                 current_step_max = self.ranges[1][0] + (i + 1) * step_size
                 for index in range(current_traverse_index, len(sorted_list)):
                     if sorted_list[index][axis_2] >= current_step_max:
-                        target_list = sorted_list[current_traverse_index: index]
-                        sorted_target_list = sorted(target_list, key=lambda x: x[self.principle_axes[0]])
-                        range_min = self._get_exact_boundary(sorted_target_list[0])
-                        range_max = self._get_exact_boundary(sorted_target_list[-1], is_min=False)
+                        if index - current_traverse_index <= 1:
+                            # use the value from last range
+                            new_axis2 = current_step_max + 0.5 * step_size
+                            if i - 1 not in grid_dict.keys():
+                                new_axis1 = sorted_list[index][axis_1]
+                            else:
+                                new_axis1 = (grid_dict[i - 1][0] + grid_dict[i - 1][1]) / 2
+                            left_bound[axis_2] = new_axis2
+                            right_bound[axis_2] = new_axis2
+                            left_bound[axis_1] = new_axis1
+                            right_bound[axis_1] = new_axis1
+                        else:
+                            target_list = sorted_list[current_traverse_index: index]
+                            sorted_target_list = sorted(target_list, key=lambda x: x[axis_1])
+                            left_bound = sorted_target_list[0]
+                            right_bound = sorted_target_list[-1]
+
+                        range_min = self._get_exact_boundary(left_bound)
+                        range_max = self._get_exact_boundary(right_bound, is_min=False)
                         grid_dict[i] = (range_min, range_max)
-                        traverse_index = index
+                        traverse_index = index + 1
                         break
                 else:
                     grid_dict[i] = (0, 0)
