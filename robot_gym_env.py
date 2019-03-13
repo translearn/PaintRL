@@ -147,7 +147,7 @@ class RobotGymEnv(gym.Env):
 
     def _load_environment(self):
         p.loadURDF('plane.urdf', (0, 0, 0), useFixedBase=True)
-        self._part_id = p.load_part(self._renders, os.path.join(self._urdf_root, 'urdf', 'painting', 'door_lr.urdf'),
+        self._part_id = p.load_part(self._renders, os.path.join(self._urdf_root, 'urdf', 'painting', 'door_test.urdf'),
                                     (-0.4, -0.6, 0.25), useFixedBase=True)
         self._start_points = p.get_start_points(self._part_id, p.Side.front)
         self.robot = Robot(self._step_manager, 'kuka_iiwa/model_free_base.urdf', pos=(0.2, -0.2, 0),
