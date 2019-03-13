@@ -102,6 +102,8 @@ class RobotGymEnv(gym.Env):
     action_space = spaces.Box(np.array((-1, -1)), np.array((1, 1)), dtype=np.float32)
     observation_space = spaces.Box(low=0.0, high=1.0, shape=(20, ), dtype=np.float32)
 
+    early_termination_mode = True
+
     def __init__(self, urdf_root, with_robot=True, renders=False, render_video=False, rollout=False):
         self._with_robot = with_robot
         self._renders = renders
@@ -110,8 +112,6 @@ class RobotGymEnv(gym.Env):
         self._rollout = rollout
 
         self._last_status = 0
-        self._remained_reward = 0
-        self._release_r_reward = False
         self._step_counter = 0
         self._total_reward = 0
         self._total_return = 0
@@ -161,13 +161,12 @@ class RobotGymEnv(gym.Env):
         # checked with hand 9148, the 9600 can hardly be reached!
         max_possible_point = 9148
         finished = False if max_possible_point > self._last_status else True
-        if finished:
-            self._release_r_reward = True
         robot_termination = self.robot.termination_request()
 
         avg_reward = self._total_reward / self._step_counter
-        # expected length 300
-        if avg_reward < max_possible_point / (200 * 100):
+        # switch the mode of termination,
+        # expected length 200
+        if avg_reward < max_possible_point / (200 * 100) and RobotGymEnv.early_termination_mode:
             return True
 
         return finished or robot_termination or self._step_counter > RobotGymEnv.EPISODE_MAX_LENGTH - 1
@@ -185,12 +184,7 @@ class RobotGymEnv(gym.Env):
         reward = reward / 100
         self._last_status = current_status
         self._total_reward += reward
-        # encourage long episode
-        extra_reward = 0
-        # if self._step_counter > 99 and self._step_counter % 100 == 0:
-        #     extra_reward = 10
-
-        return reward + extra_reward
+        return reward
 
     def _penalty(self, paint_succeed_rate):
         time_step_penalty = 0.1
@@ -204,8 +198,6 @@ class RobotGymEnv(gym.Env):
         penalty = self._penalty(paint_succeed_rate)
         actual_reward = reward - penalty
         done = self._termination()
-        # if self._release_r_reward:
-        #     actual_reward += self._remained_reward
         observation = self._augmented_observation()
         if not done:
             self._total_return += actual_reward
@@ -231,8 +223,6 @@ class RobotGymEnv(gym.Env):
         self._total_reward = 0
         self.robot.reset(start_point)
         self._last_status = p.get_job_status(self._part_id, self._paint_side, self._paint_color)
-        self._remained_reward = self._last_status / 100
-        self._release_r_reward = False
         return self._augmented_observation()
 
     def render(self, mode='human'):
