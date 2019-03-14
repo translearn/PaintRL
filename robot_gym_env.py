@@ -100,7 +100,9 @@ class RobotGymEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array'], 'video.frames_per_second': 30}
     reward_range = (-1e5, 1e5)
     action_space = spaces.Box(np.array((-1, -1)), np.array((1, 1)), dtype=np.float32)
-    observation_space = spaces.Box(low=0.0, high=1.0, shape=(20, ), dtype=np.float32)
+    OBS_MODE = 'grid'  # 'section', 'grid'
+    observation_space = spaces.Box(low=0.0, high=1.0, shape=(20,), dtype=np.float32) if OBS_MODE == 'section'\
+        else spaces.Box(low=0.0, high=1.0, shape=(20 * 20 + 2,), dtype=np.float32)
 
     early_termination_mode = True
 
@@ -147,7 +149,8 @@ class RobotGymEnv(gym.Env):
 
     def _load_environment(self):
         p.loadURDF('plane.urdf', (0, 0, 0), useFixedBase=True)
-        self._part_id = p.load_part(self._renders, os.path.join(self._urdf_root, 'urdf', 'painting', 'door_test.urdf'),
+        self._part_id = p.load_part(self._renders, RobotGymEnv.OBS_MODE,
+                                    os.path.join(self._urdf_root, 'urdf', 'painting', 'door_test.urdf'),
                                     (-0.4, -0.6, 0.25), useFixedBase=True)
         self._start_points = p.get_start_points(self._part_id, p.Side.front)
         self.robot = Robot(self._step_manager, 'kuka_iiwa/model_free_base.urdf', pos=(0.2, -0.2, 0),
@@ -173,9 +176,9 @@ class RobotGymEnv(gym.Env):
 
     def _augmented_observation(self):
         pose, _ = self.robot.get_observation()
-        status = p.get_partial_observation(self._part_id, self._paint_side, pose, self._paint_color)
+        status = p.get_partial_observation(self._part_id, self._paint_side, self._paint_color, pose)
         normalized_pose = p.get_normalized_pose(self._part_id, self._paint_side, pose)
-        return list(status.values()) + list(normalized_pose)
+        return list(status) + list(normalized_pose)
 
     def _reward(self):
         current_status = p.get_job_status(self._part_id, self._paint_side, self._paint_color)
@@ -257,33 +260,33 @@ class RobotGymEnv(gym.Env):
 
 if __name__ == '__main__':
     with RobotGymEnv(os.path.dirname(os.path.realpath(__file__)), with_robot=False,
-                     renders=True, render_video=False, rollout=True) as env:
+                     renders=False, render_video=False, rollout=False) as env:
         # i = 0
         # while i <= 1:
         #     env.step([i, 1])
         #     env.step([-i, -1])
         #     i += 0.01
-        env.step([1, 1])
+        # env.step([1, 1])
+        #
+        # env.step([1, 1])
+        # env.reset()
+        # env.step([0, 1])
+        # env.step([0, 1])
+        from random import uniform
+        import cProfile as Profile
 
-        env.step([1, 1])
-        env.reset()
-        env.step([0, 1])
-        env.step([0, 1])
-        # from random import uniform
-        # import cProfile as Profile
-        #
-        # pr = Profile.Profile()
-        # pr.disable()
-        # for i in range(10000):
-        #     print('currently in iteration: {}'.format(i))
-        #     pr.enable()
-        #     for j in range(50):
-        #         ret = env.step([uniform(-1, 1), uniform(-1, 1)])
-        #         if ret[2]:
-        #             break
-        #     pr.disable()
-        #
-        # pr.dump_stats('/home/pyang/profile.pstat')
+        pr = Profile.Profile()
+        pr.disable()
+        for i in range(10000):
+            print('currently in iteration: {}'.format(i))
+            pr.enable()
+            for j in range(50):
+                ret = env.step([uniform(-1, 1), uniform(-1, 1)])
+                if ret[2]:
+                    break
+            pr.disable()
+
+        pr.dump_stats('/home/pyang/profile.pstat')
         #
         # import pstats
         #

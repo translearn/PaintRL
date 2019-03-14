@@ -44,8 +44,6 @@ def _clip_to_01_np(v):
 
 
 def normalize(v, tolerance=0.00001):
-    if type(v) == np.float64:
-        print(1)
     mag2 = sum(n * n for n in v)
     if abs(mag2 - 1.0) > tolerance:
         mag = np.sqrt(mag2)
@@ -350,10 +348,9 @@ class Part:
     BACK_COLOR = (0, 1, 0)
     # Place holder in KD-tree, no point can have such a coordinate
     IRRELEVANT_POSE = (10, 10, 10)
-    # Distance weight factor, 0 means no distance weight
-    DISTANCE_FACTOR = 1
     # Refine the feedback of the end effector pose to grid representation, prevent part overfitting
     GRID_GRANULARITY = 100
+    # for the eight directions of initial painting
     MODE_SIGN = {0: [1, 0], 1: [1, -1], 2: [0, -1], 3: [-1, -1],
                  4: [-1, 0], 5: [-1, 1], 6: [0, 1], 7: [1, 1]}
     """
@@ -361,8 +358,11 @@ class Part:
     extract the pixels on the part to be painted.
     """
 
-    def __init__(self, urdf_id=-1, render=True):
+    def __init__(self, urdf_id=-1, render=True, observation='section'):
         self.urdf_id = urdf_id
+        self._render = render
+        self._obs = observation
+        self._obs_handler = None
         self.uv_map = None
         self.bary_list = None
         self.vertices = None
@@ -380,10 +380,9 @@ class Part:
         self.non_principle_axis = None
         self.ranges = None
         self.front_normal = None
-        self._render = render
         self._writer = None
-        self._grid_dict = {}
-        self._grid_range = {}
+        self.grid_dict = {}
+        self.grid_range = {}
         self._max_grid_size = {}
         self._last_painted_pixels = []
 
@@ -396,7 +395,7 @@ class Part:
         return self.texture_pixels[texel] == color[0] and self.texture_pixels[texel + 1] == color[1] \
                and self.texture_pixels[texel + 2] == color[2]
 
-    def _change_pixel(self, color, i, j):
+    def change_pixel(self, color, i, j):
         texel = self._get_texel(i, j)
         if self._is_changed(texel, color):
             return False
@@ -407,7 +406,7 @@ class Part:
 
     def _change_texel_color(self, color, bary, point):
         i, j = bary.get_texel(point, self.texture_width, self.texture_height)
-        changed = self._change_pixel(color, i, j)
+        changed = self.change_pixel(color, i, j)
         return i, j, changed
 
     def _get_closest_bary(self, point, nearest_vertex, side):
@@ -475,16 +474,16 @@ class Part:
             front_color = _get_color(Part.FRONT_COLOR)
             back_color = _get_color(Part.BACK_COLOR)
             for point in target_pixels:
-                self._change_pixel(irr_color, *point)
+                self.change_pixel(irr_color, *point)
             for point in self.profile[Side.back]:
-                self._change_pixel(back_color, *point)
+                self.change_pixel(back_color, *point)
             for point in self.profile[Side.front]:
-                self._change_pixel(front_color, *point)
+                self.change_pixel(front_color, *point)
         # _get_texture_image(self.texture_pixels, self.texture_width, self.texture_height).show()
         else:
             color = _get_color((0, 0, 0))
             for point in target_pixels:
-                self._change_pixel(color, *point)
+                self.change_pixel(color, *point)
 
     def _build_kd_tree(self):
         side_label = {}
@@ -599,7 +598,7 @@ class Part:
     def get_texture_size(self):
         return self.texture_width, self.texture_height
 
-    def _get_pixel_status(self, pixel, color):
+    def get_pixel_status(self, pixel, color):
         texel = self._get_texel(*pixel)
         texel_color = self.texture_pixels[texel:texel + 3]
         return color == texel_color
@@ -608,7 +607,7 @@ class Part:
         color = _get_color(color)
         finished_counter = 0
         for pixel in self.profile[side]:
-            if self._get_pixel_status(pixel, color):
+            if self.get_pixel_status(pixel, color):
                 finished_counter += 1
         return finished_counter
 
@@ -636,7 +635,7 @@ class Part:
             if bary.is_in_same_side(side) and bary.area_valid:
                 center_point, hook_point = bary.get_face_guide_point(Part.HOOK_DISTANCE_TO_PART)
                 grid_index = self._get_grid_index_2(center_point[self.principle_axes[1]])
-                grid_range = self._grid_dict[side][grid_index]
+                grid_range = self.grid_dict[side][grid_index]
                 if center_point[self.principle_axes[0]] - grid_range[0] >= MIN_PAINT_DIAMETER and \
                         grid_range[1] - center_point[self.principle_axes[0]] >= MIN_PAINT_DIAMETER and \
                         axis_2_min <= center_point[self.principle_axes[1]] <= axis_2_max:
@@ -667,10 +666,10 @@ class Part:
                 sorted_points = sorted(point_grids[index], key=lambda v: v[0][self.principle_axes[0]])
                 # filter out the fake edge points, set the threshold to 15% the range
                 x_val = sorted_points[0][0][self.principle_axes[0]]
-                if (x_val - self._grid_dict[side][index][0]) / self._grid_range[side][index] < 0.15:
+                if (x_val - self.grid_dict[side][index][0]) / self.grid_range[side][index] < 0.15:
                     start_points.append(sorted_points[0])
                 x_val = sorted_points[-1][0][self.principle_axes[0]]
-                if (self._grid_dict[side][index][1] - x_val) / self._grid_range[side][index] < 0.15:
+                if (self.grid_dict[side][index][1] - x_val) / self.grid_range[side][index] < 0.15:
                     start_points.append(sorted_points[-1])
 
         start_pos = [item[0] for item in start_points]
@@ -686,6 +685,10 @@ class Part:
         self._writer = TextWriter(self.urdf_id, self.principle_axes, self.ranges)
         self._set_grid_dict()
         self._correct_bary_normals()
+        if self._obs == 'section':
+            self._obs_handler = SectionObservation(self)
+        else:
+            self._obs_handler = GridObservation(self, 20)
 
     def set_ranges_along_principle(self, ranges):
         self.ranges = ranges
@@ -705,9 +708,9 @@ class Part:
         val_axis_2 = point[self.principle_axes[1]] + delta_axis2
         old_grid_index, grid_index = self._get_grid_index_2(old_val_axis_2), self._get_grid_index_2(val_axis_2)
         if grid_index >= old_grid_index:
-            grid_ranges = [self._grid_range[side][i] for i in range(old_grid_index, grid_index + 1)]
+            grid_ranges = [self.grid_range[side][i] for i in range(old_grid_index, grid_index + 1)]
         else:
-            grid_ranges = [self._grid_range[side][i] for i in range(grid_index, old_grid_index + 1)]
+            grid_ranges = [self.grid_range[side][i] for i in range(grid_index, old_grid_index + 1)]
         avg_size = np.mean(grid_ranges)
         return delta_axis1 * avg_size / self._max_grid_size[side]
 
@@ -747,7 +750,7 @@ class Part:
         quantity = int(len(targets) * percent / 100)
         i = 0
         for i in range(quantity):
-            self._change_pixel(color, *targets[i])
+            self.change_pixel(color, *targets[i])
         # self.get_texture_image().show()
         if with_start_point:
             rand_pixel = randint(i, len(targets) - 1)
@@ -790,9 +793,9 @@ class Part:
                 for index in range(current_traverse_index, len(sorted_list)):
                     if sorted_list[index][axis_2] >= current_step_max:
                         if index - current_traverse_index <= 1:
-                            # use the value from last range
+                            # use the middle value from last range
                             new_axis2 = current_step_max + 0.5 * step_size
-                            if i - 1 not in grid_dict.keys():
+                            if i - 1 not in grid_dict:
                                 new_axis1 = sorted_list[index][axis_1]
                             else:
                                 new_axis1 = (grid_dict[i - 1][0] + grid_dict[i - 1][1]) / 2
@@ -813,16 +816,16 @@ class Part:
                         break
                 else:
                     grid_dict[i] = (0, 0)
-            self._grid_dict[side] = grid_dict
-            self._grid_range[side] = {key: (value[1] - value[0]) for key, value in grid_dict.items()}
-            self._max_grid_size[side] = max(self._grid_range[side].values())
+            self.grid_dict[side] = grid_dict
+            self.grid_range[side] = {key: (value[1] - value[0]) for key, value in grid_dict.items()}
+            self._max_grid_size[side] = max(self.grid_range[side].values())
 
     def get_normalized_pose(self, side, pose):
         axis1_real = pose[self.principle_axes[0]]
         axis2_real = pose[self.principle_axes[1]]
         axis2_in_range = (axis2_real - self.ranges[1][0]) / (self.ranges[1][1] - self.ranges[1][0])
         grid_index = self._get_grid_index_2(axis2_real)
-        grid_range = self._grid_dict[side][grid_index]
+        grid_range = self.grid_dict[side][grid_index]
         # self._debug_grid(pose, side)
         if grid_range[1] - grid_range[0] == 0:
             axis1_in_range = 0
@@ -833,26 +836,46 @@ class Part:
     def _debug_grid(self, pose, side):
         step_size = (self.ranges[1][1] - self.ranges[1][0]) / Part.GRID_GRANULARITY
         for i in range(Part.GRID_GRANULARITY):
-            addUserDebugLine((pose[0], self._grid_dict[side][i][0], self.ranges[1][0] + (i + 1) * step_size),
-                             (pose[0], self._grid_dict[side][i][0], self.ranges[1][0] + i * step_size), (1, 0, 0))
-            addUserDebugLine((pose[0], self._grid_dict[side][i][1], self.ranges[1][0] + (i + 1) * step_size),
-                             (pose[0], self._grid_dict[side][i][1], self.ranges[1][0] + i * step_size), (1, 0, 0))
-            addUserDebugLine((pose[0], self._grid_dict[side][i][0], self.ranges[1][0] + i * step_size),
-                             (pose[0], self._grid_dict[side][i][1], self.ranges[1][0] + i * step_size), (1, 0, 0))
-            addUserDebugLine((pose[0], self._grid_dict[side][i][0], self.ranges[1][0] + (i + 1) * step_size),
-                             (pose[0], self._grid_dict[side][i][1], self.ranges[1][0] + (i + 1) * step_size), (1, 0, 0))
+            addUserDebugLine((pose[0], self.grid_dict[side][i][0], self.ranges[1][0] + (i + 1) * step_size),
+                             (pose[0], self.grid_dict[side][i][0], self.ranges[1][0] + i * step_size), (1, 0, 0))
+            addUserDebugLine((pose[0], self.grid_dict[side][i][1], self.ranges[1][0] + (i + 1) * step_size),
+                             (pose[0], self.grid_dict[side][i][1], self.ranges[1][0] + i * step_size), (1, 0, 0))
+            addUserDebugLine((pose[0], self.grid_dict[side][i][0], self.ranges[1][0] + i * step_size),
+                             (pose[0], self.grid_dict[side][i][1], self.ranges[1][0] + i * step_size), (1, 0, 0))
+            addUserDebugLine((pose[0], self.grid_dict[side][i][0], self.ranges[1][0] + (i + 1) * step_size),
+                             (pose[0], self.grid_dict[side][i][1], self.ranges[1][0] + (i + 1) * step_size), (1, 0, 0))
 
-    def get_partial_observation(self, side, pose, color, sections=18):
-        # 360 / 20 = 18 sections
+    def get_partial_observation(self, side, color, pose, sections=18):
         color = _get_color(color)
+        return self._obs_handler.get_observation(side, color, pose, sections)
+
+    def write_text_info(self, action, reward, penalty, total_return, step):
+        self._writer.write_text_info(action, reward, penalty, total_return, step)
+
+
+class Observation:
+
+    def __init__(self, part):
+        self._part = part
+
+    def get_observation(self, side, color, pose, sections=18):
+        raise NotImplementedError
+
+
+class SectionObservation(Observation):
+    # Distance weight factor, 0 means no distance weight
+    DISTANCE_FACTOR = 1
+
+    def get_observation(self, side, color, pose, sections=18):
+        # 360 / 20 = 18 sections
         obs = {}
-        result = {}
+        result = np.ones(sections, dtype=np.float32)
         for i in range(sections):
             obs[i] = 0
         basis = 2 * np.pi / sections
-        for pixel, coordinate in self.profile_dicts[side].items():
-            relative_x = coordinate[self.principle_axes[0]] - pose[self.principle_axes[0]]
-            relative_y = coordinate[self.principle_axes[1]] - pose[self.principle_axes[1]]
+        for pixel, coordinate in self._part.profile_dicts[side].items():
+            relative_x = coordinate[self._part.principle_axes[0]] - pose[self._part.principle_axes[0]]
+            relative_y = coordinate[self._part.principle_axes[1]] - pose[self._part.principle_axes[1]]
             if relative_x == 0 and relative_y == 0:
                 continue
             angle = np.arctan2(relative_y, relative_x)
@@ -861,16 +884,93 @@ class Part:
             phase = int(angle / basis)
             # distance weighted point should be redesigned, first without distance weight
             distance = np.sqrt(relative_x ** 2 + relative_y ** 2)
-            weighted_distance = np.exp(-distance * Part.DISTANCE_FACTOR)
-            if not self._get_pixel_status(pixel, color):
+            weighted_distance = np.exp(-distance * SectionObservation.DISTANCE_FACTOR)
+            if not self._part.get_pixel_status(pixel, color):
                 obs[phase] += weighted_distance
         max_factor = max(obs, key=obs.get)
+
         for phase in obs:
             result[phase] = np.float32(obs[phase] / obs[max_factor])
         return result
 
-    def write_text_info(self, action, reward, penalty, total_return, step):
-        self._writer.write_text_info(action, reward, penalty, total_return, step)
+
+class GridObservation(Observation):
+
+    def __init__(self, part, h_grid_granularity):
+        Observation.__init__(self, part)
+        self._v_granularity = Part.GRID_GRANULARITY
+        self._h_granularity = h_grid_granularity
+        self._setup_grid_pixels()
+
+    def _set_pixels_in_grid(self):
+        grid_pixels = {}
+        axis_2_step = (self._part.ranges[1][1] - self._part.ranges[1][0]) / self._v_granularity
+        for profile_dict in self._part.profile_dicts:
+            grid_pixels[profile_dict] = {}
+            for pixel in self._part.profile_dicts[profile_dict]:
+                space_locate = self._part.profile_dicts[profile_dict][pixel]
+                y_grid = min(self._v_granularity - 1,
+                             int((space_locate[self._part.principle_axes[1]] - self._part.ranges[1][0]) / axis_2_step))
+                if self._part.grid_range[profile_dict][y_grid] == 0:
+                    x_grid = 0
+                else:
+                    x_step = self._part.grid_range[profile_dict][y_grid] / self._h_granularity
+                    x_grid = min(self._h_granularity - 1, int((space_locate[self._part.principle_axes[0]] -
+                                                               self._part.grid_dict[profile_dict][y_grid][0]) / x_step))
+                if y_grid not in grid_pixels[profile_dict]:
+                    grid_pixels[profile_dict][y_grid] = {}
+                if x_grid not in grid_pixels[profile_dict][y_grid]:
+                    grid_pixels[profile_dict][y_grid][x_grid] = []
+                grid_pixels[profile_dict][y_grid][x_grid].append(pixel)
+        return grid_pixels
+
+    def _merge_vertical_grids(self, grid_pixels):
+        v_interval = int(self._v_granularity / self._h_granularity)
+        for profile_dict in grid_pixels:
+            for v_grid in grid_pixels[profile_dict]:
+                v_target = v_grid // v_interval
+                for h_grid in grid_pixels[profile_dict][v_grid]:
+                    pixels = grid_pixels[profile_dict][v_grid][h_grid]
+                    self._grid_pixels[profile_dict][v_target][h_grid].extend(pixels)
+
+    def _setup_grid_pixels(self):
+        self._grid_pixels = {}
+        for profile_dict in self._part.profile_dicts:
+            self._grid_pixels[profile_dict] = {}
+            for i in range(self._h_granularity):
+                self._grid_pixels[profile_dict][i] = {}
+                for j in range(self._h_granularity):
+                    self._grid_pixels[profile_dict][i][j] = []
+        grid_pixels = self._set_pixels_in_grid()
+        self._merge_vertical_grids(grid_pixels)
+
+    def _show_grids(self, color, side):
+        for i in range(self._h_granularity):
+            if i % 2 == 0:
+                continue
+            for j in range(self._h_granularity):
+                if j % 2 == 0:
+                    continue
+                num_pixels = len(self._grid_pixels[side][i][j])
+                if num_pixels == 0:
+                    continue
+                for pixel in self._grid_pixels[side][i][j]:
+                    self._part.change_pixel(color, *pixel)
+
+    def get_observation(self, side, color, *_):
+        # self._show_grids(color, side)
+        obs = np.ones((self._h_granularity, self._h_granularity), dtype=np.float32)
+        for i in range(self._h_granularity):
+            for j in range(self._h_granularity):
+                num_pixels = len(self._grid_pixels[side][i][j])
+                done_counter = 0
+                if num_pixels == 0:
+                    continue
+                for pixel in self._grid_pixels[side][i][j]:
+                    if self._part.get_pixel_status(pixel, color):
+                        done_counter += 1
+                obs[i][j] = np.float32(done_counter / num_pixels)
+        return obs.reshape((self._h_granularity ** 2,))
 
 
 def _get_abs_file_path(root_path, path):
@@ -1071,12 +1171,12 @@ def _cache_obj(urdf_obj, obj_path):
 
 def load_part(*args, **kwargs):
     try:
-        path = args[1]
-        u_id = loadURDF(*args[1:], **kwargs)
+        path = args[2]
+        u_id = loadURDF(*args[2:], **kwargs)
         obj_file_path, texture_file_path = _retrieve_related_file_path(path)
         # Texture file exists, prepare for texture manipulation
         if texture_file_path:
-            part = Part(u_id, args[0])
+            part = Part(u_id, args[0], args[1])
             _urdf_cache[u_id] = part
             _cache_texture(part, obj_file_path, texture_file_path)
         return u_id
@@ -1125,8 +1225,8 @@ def get_normalized_pose(urdf_id, side, pose):
     return _urdf_cache[urdf_id].get_normalized_pose(side, pose)
 
 
-def get_partial_observation(urdf_id, side, pose, color, sections=18):
-    return _urdf_cache[urdf_id].get_partial_observation(side, pose, color, sections)
+def get_partial_observation(urdf_id, side, color, pose, sections=18):
+    return _urdf_cache[urdf_id].get_partial_observation(side, color, pose, sections)
 
 
 def reset_part(urdf_id, side, color, percent, mode, with_start_point=False):
