@@ -869,7 +869,7 @@ class SectionObservation(Observation):
     def get_observation(self, side, color, pose, sections=18):
         # 360 / 20 = 18 sections
         obs = {}
-        result = np.ones(sections, dtype=np.float32)
+        result = np.zeros(sections, dtype=np.float32)
         for i in range(sections):
             obs[i] = 0
         basis = 2 * np.pi / sections
