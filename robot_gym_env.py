@@ -101,7 +101,7 @@ class RobotGymEnv(gym.Env):
     reward_range = (-1e5, 1e5)
     action_space = spaces.Box(np.array((-1, -1)), np.array((1, 1)), dtype=np.float32)
     OBS_MODE = 'grid'  # 'section', 'grid'
-    observation_space = spaces.Box(low=0.0, high=1.0, shape=(20,), dtype=np.float32) if OBS_MODE == 'section'\
+    observation_space = spaces.Box(low=0.0, high=1.0, shape=(18 + 2,), dtype=np.float32) if OBS_MODE == 'section'\
         else spaces.Box(low=0.0, high=1.0, shape=(20 * 20 + 2,), dtype=np.float32)
 
     early_termination_mode = True
@@ -260,33 +260,33 @@ class RobotGymEnv(gym.Env):
 
 if __name__ == '__main__':
     with RobotGymEnv(os.path.dirname(os.path.realpath(__file__)), with_robot=False,
-                     renders=False, render_video=False, rollout=False) as env:
+                     renders=True, render_video=False, rollout=True) as env:
         # i = 0
         # while i <= 1:
         #     env.step([i, 1])
         #     env.step([-i, -1])
         #     i += 0.01
-        # env.step([1, 1])
+        env.step([1, 1])
+
+        env.step([1, 1])
+        env.reset()
+        env.step([0, 1])
+        env.step([0, 1])
+        # from random import uniform
+        # import cProfile as Profile
         #
-        # env.step([1, 1])
-        # env.reset()
-        # env.step([0, 1])
-        # env.step([0, 1])
-        from random import uniform
-        import cProfile as Profile
-
-        pr = Profile.Profile()
-        pr.disable()
-        for i in range(10000):
-            print('currently in iteration: {}'.format(i))
-            pr.enable()
-            for j in range(50):
-                ret = env.step([uniform(-1, 1), uniform(-1, 1)])
-                if ret[2]:
-                    break
-            pr.disable()
-
-        pr.dump_stats('/home/pyang/profile.pstat')
+        # pr = Profile.Profile()
+        # pr.disable()
+        # for i in range(10000):
+        #     print('currently in iteration: {}'.format(i))
+        #     pr.enable()
+        #     for j in range(50):
+        #         ret = env.step([uniform(-1, 1), uniform(-1, 1)])
+        #         if ret[2]:
+        #             break
+        #     pr.disable()
+        #
+        # pr.dump_stats('/home/pyang/profile.pstat')
         #
         # import pstats
         #

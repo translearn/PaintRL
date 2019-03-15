@@ -959,7 +959,7 @@ class GridObservation(Observation):
 
     def get_observation(self, side, color, *_):
         # self._show_grids(color, side)
-        obs = np.ones((self._h_granularity, self._h_granularity), dtype=np.float32)
+        obs = np.zeros((self._h_granularity, self._h_granularity), dtype=np.float32)
         for i in range(self._h_granularity):
             for j in range(self._h_granularity):
                 num_pixels = len(self._grid_pixels[side][i][j])
@@ -969,7 +969,7 @@ class GridObservation(Observation):
                 for pixel in self._grid_pixels[side][i][j]:
                     if self._part.get_pixel_status(pixel, color):
                         done_counter += 1
-                obs[i][j] = np.float32(done_counter / num_pixels)
+                obs[i][j] = np.float32(1 - done_counter / num_pixels)
         return obs.reshape((self._h_granularity ** 2,))
 
 
