@@ -100,18 +100,20 @@ class RobotGymEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array'], 'video.frames_per_second': 30}
     reward_range = (-1e5, 1e5)
     action_space = spaces.Box(np.array((-1, -1)), np.array((1, 1)), dtype=np.float32)
-    OBS_MODE = 'grid'  # 'section', 'grid'
+    OBS_MODE = 'section'  # 'section', 'grid'
     observation_space = spaces.Box(low=0.0, high=1.0, shape=(18 + 2,), dtype=np.float32) if OBS_MODE == 'section'\
         else spaces.Box(low=0.0, high=1.0, shape=(20 * 20 + 2,), dtype=np.float32)
 
     early_termination_mode = True
 
-    def __init__(self, urdf_root, with_robot=True, renders=False, render_video=False, rollout=False):
+    def __init__(self, urdf_root, with_robot=True, renders=False, render_video=False,
+                 rollout=False, early_termination_mode=True):
         self._with_robot = with_robot
         self._renders = renders
         self._render_video = render_video
         self._urdf_root = urdf_root
         self._rollout = rollout
+        self._early_termination_mode = early_termination_mode
 
         self._last_status = 0
         self._step_counter = 0
@@ -169,7 +171,7 @@ class RobotGymEnv(gym.Env):
         avg_reward = self._total_reward / self._step_counter
         # switch the mode of termination,
         # expected length 200
-        if avg_reward < max_possible_point / (200 * 100) and RobotGymEnv.early_termination_mode:
+        if avg_reward < max_possible_point / (200 * 100) and self._early_termination_mode:
             return True
 
         return finished or robot_termination or self._step_counter > RobotGymEnv.EPISODE_MAX_LENGTH - 1
@@ -220,7 +222,8 @@ class RobotGymEnv(gym.Env):
             #                            painted_percent, painted_mode, with_start_point=True)
             p.reset_part(self._part_id, self._paint_side, self._paint_color,
                          painted_percent, painted_mode, with_start_point=False)
-            start_point = self._start_points[randint(0, len(self._start_points) - 1)]
+            # start_point = self._start_points[randint(0, len(self._start_points) - 1)]
+            start_point = self._start_points[randint(0, 3)]
         self._step_counter = 0
         self._total_return = 0
         self._total_reward = 0
