@@ -15,6 +15,18 @@ from video_renderer import VideoRecorder
 from timeit import default_timer as timer
 
 
+Part_Dict = {
+    0: ['door_test.urdf', 9148],
+    1: ['square.urdf', 14488],
+    2: ['door_lf.urdf', 0],
+    3: ['door_lr.urdf', 0],
+    4: ['door_rf.urdf', 0],
+    5: ['door_rr.urdf', 0],
+    6: ['roof.urdf', 0],
+    7: ['bonnet.urdf', 0],
+}
+
+
 def _get_view_matrix():
     cam_target_pos = (-0.03, -0.25, 0.82)
     cam_distance = 1
@@ -91,6 +103,8 @@ class StepManager:
 
 
 class RobotGymEnv(gym.Env):
+    Current_Part_No = 1
+    Expected_Episode_Length = 300
 
     RENDER_HEIGHT = 720
     RENDER_WIDTH = 960
@@ -104,10 +118,10 @@ class RobotGymEnv(gym.Env):
     observation_space = spaces.Box(low=0.0, high=1.0, shape=(18 + 2,), dtype=np.float32) if OBS_MODE == 'section'\
         else spaces.Box(low=0.0, high=1.0, shape=(20 * 20 + 2,), dtype=np.float32)
 
-    early_termination_mode = True
-
     def __init__(self, urdf_root, with_robot=True, renders=False, render_video=False,
                  rollout=False, early_termination_mode=True):
+        self._part_name = Part_Dict[RobotGymEnv.Current_Part_No][0]
+        self._max_possible_point = Part_Dict[RobotGymEnv.Current_Part_No][1]
         self._with_robot = with_robot
         self._renders = renders
         self._render_video = render_video
@@ -152,9 +166,9 @@ class RobotGymEnv(gym.Env):
     def _load_environment(self):
         p.loadURDF('plane.urdf', (0, 0, 0), useFixedBase=True)
         self._part_id = p.load_part(self._renders, RobotGymEnv.OBS_MODE,
-                                    os.path.join(self._urdf_root, 'urdf', 'painting', 'door_test.urdf'),
+                                    os.path.join(self._urdf_root, 'urdf', 'painting', Part_Dict[1][0]),
                                     (-0.4, -0.6, 0.25), useFixedBase=True)
-        self._start_points = p.get_start_points(self._part_id, p.Side.front)
+        self._start_points = p.get_start_points(self._part_id, p.Side.front, mode='all')
         self.robot = Robot(self._step_manager, 'kuka_iiwa/model_free_base.urdf', pos=(0.2, -0.2, 0),
                            orn=p.getQuaternionFromEuler((0, 0, math.pi*3/2)), with_robot=self._with_robot)
         p.setGravity(0, 0, -10)
@@ -162,18 +176,17 @@ class RobotGymEnv(gym.Env):
     def _termination(self):
         # cut the long episode to save sampling time
         self._step_counter += 1
-        # max_possible_point = p.get_job_limit(self._part_id, self._paint_side)
+        # self._max_possible_point = p.get_job_limit(self._part_id, self._paint_side)
         # checked with hand 9148, the 9600 can hardly be reached!
-        max_possible_point = 9148
-        finished = False if max_possible_point > self._last_status else True
+        # self._max_possible_point = 9148
+        finished = False if self._max_possible_point > self._last_status else True
         robot_termination = self.robot.termination_request()
 
         avg_reward = self._total_reward / self._step_counter
-        # switch the mode of termination,
-        # expected length 200
-        if avg_reward < max_possible_point / (200 * 100) and self._early_termination_mode:
+        # switch the mode of termination
+        expected_avg_reward = self._max_possible_point / (RobotGymEnv.Expected_Episode_Length * 100)
+        if avg_reward < expected_avg_reward and self._early_termination_mode:
             return True
-
         return finished or robot_termination or self._step_counter > RobotGymEnv.EPISODE_MAX_LENGTH - 1
 
     def _augmented_observation(self):
@@ -195,6 +208,7 @@ class RobotGymEnv(gym.Env):
         time_step_penalty = 0.1
         off_part_penalty = self.robot.off_part_penalty
         overlap_penalty = 0.1 * (1 - paint_succeed_rate)
+        # overlap_penalty = 1 - paint_succeed_rate
         return time_step_penalty + off_part_penalty + overlap_penalty
 
     def step(self, action):
@@ -222,8 +236,8 @@ class RobotGymEnv(gym.Env):
             #                            painted_percent, painted_mode, with_start_point=True)
             p.reset_part(self._part_id, self._paint_side, self._paint_color,
                          painted_percent, painted_mode, with_start_point=False)
-            # start_point = self._start_points[randint(0, len(self._start_points) - 1)]
-            start_point = self._start_points[randint(0, 3)]
+            start_point = self._start_points[randint(0, len(self._start_points) - 1)]
+            # start_point = self._start_points[0]
         self._step_counter = 0
         self._total_return = 0
         self._total_reward = 0

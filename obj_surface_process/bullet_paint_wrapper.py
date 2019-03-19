@@ -626,8 +626,17 @@ class Part:
                 if pose:
                     self._start_points[side].append([pose, orn])
 
-    def get_start_points(self, side):
-        # return self._start_points[side]
+    def get_start_points(self, side, mode='edge'):
+        """
+        get the points of initial pose
+        :param side: side of the part
+        :param mode:
+            anchor: only four anchor points on the four corner of a part
+            edge: only valid points on the edge of the part
+            all: all valid points
+
+        :return: start points
+        """
         start_points = []
         axis_2_value = [item[0][self.principle_axes[1]] for item in self._start_points[side]]
         axis_2_max, axis_2_min = max(axis_2_value), min(axis_2_value)
@@ -643,8 +652,11 @@ class Part:
                     start_points.append([hook_point, orn])
                     # bary.add_debug_info()
                     # bary.draw_face_normal()
-        start_points, start_pos = self._get_edge_start_points(start_points, side)
-        self._start_points[side].extend(start_points)
+        if mode == 'edge':
+            start_points = self._get_edge_start_points(start_points, side)
+        if mode != 'anchor':
+            self._start_points[side].extend(start_points)
+        start_pos = [item[0] for item in self._start_points[side]]
         self._start_pos[side] = cKDTree(start_pos)
         return self._start_points[side]
 
@@ -672,8 +684,7 @@ class Part:
                 if (self.grid_dict[side][index][1] - x_val) / self.grid_range[side][index] < 0.15:
                     start_points.append(sorted_points[-1])
 
-        start_pos = [item[0] for item in start_points]
-        return start_points, start_pos
+        return start_points
 
     def _correct_bary_normals(self):
         self._correct_bary_normals_with_conv_hull()
@@ -888,9 +899,9 @@ class SectionObservation(Observation):
             if not self._part.get_pixel_status(pixel, color):
                 obs[phase] += weighted_distance
         max_factor = max(obs, key=obs.get)
-
-        for phase in obs:
-            result[phase] = np.float32(obs[phase] / obs[max_factor])
+        if obs[max_factor] != 0:
+            for phase in obs:
+                result[phase] = np.float32(obs[phase] / obs[max_factor])
         return result
 
 
@@ -1209,8 +1220,8 @@ def get_texture_image(urdf_id):
     return _urdf_cache[urdf_id].get_texture_image()
 
 
-def get_start_points(urdf_id, side):
-    return _urdf_cache[urdf_id].get_start_points(side)
+def get_start_points(urdf_id, side, mode='edge'):
+    return _urdf_cache[urdf_id].get_start_points(side, mode)
 
 
 def get_guided_point(urdf_id, point, normal, delta_axis1, delta_axis2):
