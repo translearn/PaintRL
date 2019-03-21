@@ -17,7 +17,7 @@ from timeit import default_timer as timer
 
 Part_Dict = {
     0: ['door_test.urdf', 9148],
-    1: ['square.urdf', 14488],
+    1: ['square.urdf', 14400],
     2: ['door_lf.urdf', 0],
     3: ['door_lr.urdf', 0],
     4: ['door_rf.urdf', 0],
@@ -112,14 +112,58 @@ class RobotGymEnv(gym.Env):
     EPISODE_MAX_LENGTH = 800
 
     metadata = {'render.modes': ['human', 'rgb_array'], 'video.frames_per_second': 30}
-    reward_range = (-1e5, 1e5)
-    action_space = spaces.Box(np.array((-1, -1)), np.array((1, 1)), dtype=np.float32)
-    OBS_MODE = 'section'  # 'section', 'grid'
+
+    reward_range = (-1e4, 1e4)
+
+    # Adjust env by hand!!!
+    ACTION_SHAPE = 1
+    ACTION_MODE = 'continuous'
+    discrete_granularity = 18
+    early_termination_mode = False
+    OBS_MODE = 'section'
+
+    if ACTION_MODE == 'continuous':
+        if ACTION_SHAPE == 2:
+            action_space = spaces.Box(np.array((-1, -1)), np.array((1, 1)), dtype=np.float32)
+        else:
+            action_space = spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)
+    else:
+        action_space = spaces.Discrete(discrete_granularity)
+
     observation_space = spaces.Box(low=0.0, high=1.0, shape=(18 + 2,), dtype=np.float32) if OBS_MODE == 'section'\
         else spaces.Box(low=0.0, high=1.0, shape=(20 * 20 + 2,), dtype=np.float32)
 
+    # class methods below does not support in ray distributed framework
+    @classmethod
+    def change_obs_mode(cls, mode='section'):
+        """
+        change the observation mode
+        :param mode: 'section', 'grid'
+        :return:
+        """
+        cls.OBS_MODE = mode
+        if mode == 'section':
+            cls.observation_space = spaces.Box(low=0.0, high=1.0, shape=(18 + 2,), dtype=np.float32)
+        else:
+            cls.observation_space = spaces.Box(low=0.0, high=1.0, shape=(20 * 20 + 2,), dtype=np.float32)
+
+    @classmethod
+    def change_action_mode(cls, shape=2, mode='continuous', discrete_granularity=18):
+        cls.ACTION_SHAPE = shape
+        cls.ACTION_MODE = mode
+        if shape == 1 and mode == 'continuous':
+            cls.action_space = spaces.Box(np.array(-1,), np.array(-1,), dtype=np.float32)
+        elif shape == 2 and mode == 'continuous':
+            cls.action_space = spaces.Box(np.array((-1, -1)), np.array((1, 1)), dtype=np.float32)
+        else:
+            cls.action_space = spaces.Discrete(discrete_granularity)
+
+    @classmethod
+    def set_termination_mode(cls, mode):
+        cls.early_termination_mode = mode
+
     def __init__(self, urdf_root, with_robot=True, renders=False, render_video=False,
-                 rollout=False, early_termination_mode=True):
+                 rollout=False):
         self._part_name = Part_Dict[RobotGymEnv.Current_Part_No][0]
         self._max_possible_point = Part_Dict[RobotGymEnv.Current_Part_No][1]
         self._with_robot = with_robot
@@ -127,7 +171,6 @@ class RobotGymEnv(gym.Env):
         self._render_video = render_video
         self._urdf_root = urdf_root
         self._rollout = rollout
-        self._early_termination_mode = early_termination_mode
 
         self._last_status = 0
         self._step_counter = 0
@@ -172,6 +215,7 @@ class RobotGymEnv(gym.Env):
         self.robot = Robot(self._step_manager, 'kuka_iiwa/model_free_base.urdf', pos=(0.2, -0.2, 0),
                            orn=p.getQuaternionFromEuler((0, 0, math.pi*3/2)), with_robot=self._with_robot)
         p.setGravity(0, 0, -10)
+        self.reset()
 
     def _termination(self):
         # cut the long episode to save sampling time
@@ -185,7 +229,7 @@ class RobotGymEnv(gym.Env):
         avg_reward = self._total_reward / self._step_counter
         # switch the mode of termination
         expected_avg_reward = self._max_possible_point / (RobotGymEnv.Expected_Episode_Length * 100)
-        if avg_reward < expected_avg_reward and self._early_termination_mode:
+        if avg_reward < expected_avg_reward and self.early_termination_mode:
             return True
         return finished or robot_termination or self._step_counter > RobotGymEnv.EPISODE_MAX_LENGTH - 1
 
@@ -209,9 +253,18 @@ class RobotGymEnv(gym.Env):
         off_part_penalty = self.robot.off_part_penalty
         overlap_penalty = 0.1 * (1 - paint_succeed_rate)
         # overlap_penalty = 1 - paint_succeed_rate
-        return time_step_penalty + off_part_penalty + overlap_penalty
+        total_penalty = time_step_penalty + off_part_penalty + overlap_penalty
+        assert 0 <= total_penalty <= 1.2, 'penalty out of range!'
+        return total_penalty
+
+    def _preprocess_action(self, action):
+        if self.ACTION_MODE == 'continuous':
+            return action
+        else:
+            return [action / self.action_space.n]
 
     def step(self, action):
+        action = self._preprocess_action(action)
         paint_succeed_rate = self.robot.apply_action(action, self._part_id, self._paint_color, self._paint_side)
         reward = self._reward()
         penalty = self._penalty(paint_succeed_rate)
@@ -228,7 +281,7 @@ class RobotGymEnv(gym.Env):
         if self._rollout:
             p.removeAllUserDebugItems()
             p.reset_part(self._part_id, self._paint_side, self._paint_color, 0, 0)
-            start_point = self._start_points[0]
+            start_point = self._start_points[randint(0, len(self._start_points) - 1)]
         else:
             painted_percent = 0  # randint(0, 49)
             painted_mode = randint(0, 7)
@@ -283,12 +336,23 @@ if __name__ == '__main__':
         #     env.step([i, 1])
         #     env.step([-i, -1])
         #     i += 0.01
-        env.step([1, 1])
-
-        env.step([1, 1])
-        env.reset()
-        env.step([0, 1])
-        env.step([0, 1])
+        env.step([-0.5])
+        env.step([1])
+        env.step([-0.5])
+        env.step([0.25])
+        env.step([-0.75])
+        env.step([1])
+        env.step([0.5])
+        env.step([-1])
+        env.step([-0.5])
+        env.step([0])
+        env.step([0])
+        # env.step([1, 1])
+        # for _ in range(20):
+        #     env.step([0, 1])
+        # env.reset()
+        # env.step([0, 1])
+        # env.step([0, 1])
         # from random import uniform
         # import cProfile as Profile
         #

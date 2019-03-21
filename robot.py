@@ -72,6 +72,8 @@ def pol2cart(rho, phi):
 
 
 def direction_normalize(action):
+    if len(action) == 1:
+        return pol2cart(1, (action[0] + 1) * np.pi)
     rho, phi = cart2pol(*action)
     x, y = abs(action[0]), abs(action[1])
     if x == 0 and y == 0:
@@ -259,7 +261,7 @@ class Robot:
     def apply_action(self, action, part_id, color, paint_side):
         """
         support partial motor values
-        :param action: tcp + normal vector
+        :param action: 1d or 2d range -1, 1
         :param color: color to be painted
         :param part_id: part id
         :param paint_side: side of the part

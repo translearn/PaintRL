@@ -334,7 +334,10 @@ class TextWriter:
 
     def write_text_info(self, action, reward, penalty, total_return, step):
         self._delete_old_info()
-        self._write_line('Action: [{0:.3f}, {1:.3f}]'.format(round(action[0], 3), round(action[1], 3)))
+        if len(action) == 1:
+            self._write_line('Action: [{0:.3f}]'.format(round(action[0], 3)))
+        else:
+            self._write_line('Action: [{0:.3f}, {1:.3f}]'.format(round(action[0], 3), round(action[1], 3)))
         self._write_line('Reward: {0:.3f}, Penalty: {1:.3f}'.format(round(reward, 3), round(penalty, 3)))
         self._write_line('Total return: {0:.3f}'.format(round(total_return, 3)))
         self._write_line('Step: {}'.format(step))
