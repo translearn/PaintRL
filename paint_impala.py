@@ -2,6 +2,7 @@ from paint_ppo import main
 
 
 if __name__ == '__main__':
+
     configuration = {
         'model': {
             'custom_model': 'paint_model',

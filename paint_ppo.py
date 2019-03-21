@@ -14,19 +14,23 @@ class PaintModel(Model):
         pass
 
     def _build_layers_v2(self, input_dict, num_outputs, options):
-        fc1 = tf.layers.dense(input_dict['obs'], 20, activation=tf.nn.relu, name='fc1')
-        fc2 = tf.layers.dense(fc1, 256, activation=tf.nn.relu, name='fc2')
-        fc3 = tf.layers.dense(fc2, 128, activation=tf.nn.relu, name='fc3')
-        out = tf.layers.dense(fc3, 4, activation=tf.nn.tanh, name='out')
-        return out, fc3
+        fc1 = tf.layers.dense(input_dict['obs'], 256, activation=tf.nn.relu, name='fc1')
+        fc2 = tf.layers.dense(fc1, 128, activation=tf.nn.relu, name='fc2')
+        out = tf.layers.dense(fc2, 4, activation=tf.nn.tanh, name='out')
+        return out, fc2
 
 
-def env_creator(env_config):
-    return RobotGymEnv(**env_config)
+class PaintLayerModel(PaintModel):
 
-
-ModelCatalog.register_custom_model('paint_model', PaintModel)
-tune.registry.register_env('robot_gym_env', env_creator)
+    def _build_layers_v2(self, input_dict, num_outputs, options):
+        num_obs_inputs = RobotGymEnv.observation_space.shape[0] - 2
+        obs = tf.slice(input_dict['obs'], [0, 0], [1, num_obs_inputs])
+        pos = tf.slice(input_dict['obs'], [0, num_obs_inputs], [1, 2])
+        fc1 = tf.layers.dense(obs, 256, activation=tf.nn.relu, name='fc1')
+        with_pose = tf.concat([fc1, pos], 1)
+        fc2 = tf.layers.dense(with_pose, 128, activation=tf.nn.relu, name='fc2')
+        out = tf.layers.dense(fc2, 4, activation=tf.nn.tanh, name='out')
+        return out, fc2
 
 
 def on_episode_start(info):
@@ -89,7 +93,14 @@ def _make_env_config(is_train=True):
         env['renders'] = True
         env['with_robot'] = False
         env['rollout'] = True
+        RobotGymEnv.set_termination_mode(False)
     return env
+
+
+def _adjust_obs_action_space(obs_mode, act_shape, act_mode, act_dis_gra=18, termination_mode=False):
+    RobotGymEnv.change_obs_mode(mode=obs_mode)
+    RobotGymEnv.change_action_mode(shape=act_shape, mode=act_mode, discrete_granularity=act_dis_gra)
+    RobotGymEnv.set_termination_mode(termination_mode)
 
 
 def main(algorithm, config):
@@ -97,7 +108,14 @@ def main(algorithm, config):
     parser.add_argument('--mode', type=str, default='train')
     parser.add_argument('--checkpoint', type=str, default='/home/pyang/ray_results/paint')
     args = parser.parse_args()
-    ray.init(object_store_memory=5000000000, redis_max_memory=2000000000, log_to_driver=False)
+
+    ModelCatalog.register_custom_model('paint_model', PaintModel)
+    ModelCatalog.register_custom_model('paint_layer_model', PaintLayerModel)
+
+    def env_creator(env_config):
+        return RobotGymEnv(**env_config)
+    tune.registry.register_env('robot_gym_env', env_creator)
+
     experiment_config = {
         'paint': {
             'run': algorithm,
@@ -107,14 +125,16 @@ def main(algorithm, config):
             },
             'config': config,
             'checkpoint_freq': 100,
-
         }
     }
     experiment_config['paint']['config']['callbacks'] = call_backs
     if args.mode == 'train':
+        ray.init(object_store_memory=10000000000, redis_max_memory=10000000000, log_to_driver=True)
+        # ray.init(redis_address='141.3.80.30:6379')
         experiment_config['paint']['config']['env_config'] = _make_env_config()
-        tune.run_experiments(experiment_config, resume=False)
+        tune.run_experiments(experiment_config)
     else:
+        experiment_config['paint']['config']['num_workers'] = 2
         args.run = experiment_config['paint']['run']
         args.env = experiment_config['paint']['env']
         args.steps = 200
@@ -127,21 +147,24 @@ def main(algorithm, config):
 
 if __name__ == '__main__':
     configuration = {
-        'num_workers': 5,
-
+        'num_workers': 30,
+        'num_gpus': 2,
         'simple_optimizer': False,
 
+        # 'model': {
+        #     'custom_model': 'paint_model',
+        #     'custom_options': {},  # extra options to pass to your model
+        # },
         'model': {
-            'custom_model': 'paint_model',
-            'custom_options': {},  # extra options to pass to your model
+            'fcnet_hiddens': [256, 128],
         },
         'batch_mode': 'truncate_episodes',
         'observation_filter': 'NoFilter',
         'vf_share_layers': True,
 
-        'sample_batch_size': 200,
-        'train_batch_size': 1600,
+        'sample_batch_size': 50,
+        'train_batch_size': 1500,
         'sgd_minibatch_size': 64,
-        'num_sgd_iter': 30,
+        'num_sgd_iter': 16,
     }
     main('PPO', configuration)
