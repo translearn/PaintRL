@@ -94,7 +94,7 @@ class Robot:
     NOT_ON_PART_TERMINATE_STEPS = 1000
 
     def __init__(self, step_manager, urdf_path, pos=(0, 0, 0), orn=(0, 0, 0, 1), with_robot=True):
-        self.robot_id = p.loadURDF(urdf_path, pos, orn, useFixedBase=True, flags=p.URDF_USE_SELF_COLLISION)
+        self.robot_id = 0
 
         self._motor_count = 7
         self._default_pos = []
@@ -107,13 +107,17 @@ class Robot:
         self._motor_lower_limits = []
         self._motor_upper_limits = []
         self._max_velocities = []
-        # max velocity, etc. setup
-        self._load_robot_info()
         self._with_robot = with_robot
+        # max velocity, etc. setup
+        if self._with_robot:
+            self.robot_id = p.loadURDF(urdf_path, pos, orn, useFixedBase=True, flags=p.URDF_USE_SELF_COLLISION)
+            self._load_robot_info()
         self._refresh_robot_pose()
 
         self._step_manager = step_manager
         self._reset_termination_variables()
+
+        self._set_up_paint_beam_plain()
 
         self.off_part_penalty = 0
 
@@ -146,25 +150,28 @@ class Robot:
         else:
             self._pose, self._orn = pos, orn
 
-    def _generate_paint_beams(self, show_debug_lines=False):
+    def _set_up_paint_beam_plain(self):
+        self._paint_plain = []
         # Here the 0.2 could be refactored.
         radius, resolution, target_ray_plane = _get_target_projection_params(0.2)
-        ray_origin = []
-        ray_dst = []
         i = j = -radius
         while i <= radius:
             while j <= radius:
                 # Euclidean distance within the radius
-                if math.sqrt(math.pow(abs(i), 2) + math.pow(abs(j), 2)) <= radius:
-                    ray_origin.append(self._pose)
-                    dst_ori = [i, j, target_ray_plane]
-                    dst_target, _ = _get_tcp_point_in_world(self._pose, self._orn, dst_ori)
-                    ray_dst.append(dst_target)
-                    if show_debug_lines:
-                        p.addUserDebugLine(self._pose, dst_target, (0, 1, 0))
+                if math.sqrt(math.pow(i, 2) + math.pow(j, 2)) <= radius:
+                    self._paint_plain.append((i, j, target_ray_plane))
                 j += resolution
             i += resolution
             j = -radius
+        self._plain_point_count = len(self._paint_plain)
+
+    def _generate_paint_beams(self, show_debug_lines=False):
+        ray_origin = [self._pose for _ in range(self._plain_point_count)]
+        ray_dst = [_get_tcp_point_in_world(self._pose, self._orn, self._paint_plain[i])[0]
+                   for i in range(self._plain_point_count)]
+        if show_debug_lines:
+            for point in self._paint_plain:
+                p.addUserDebugLine(self._pose, point, (0, 1, 0))
         return ray_origin, ray_dst
 
     def _get_tcp_orn_norm(self):
@@ -214,8 +221,11 @@ class Robot:
                 self._count_not_on_part()
             else:
                 self._last_on_part = True
-            joint_angles = self._get_joint_angles(pos, orn)
-            act.append(joint_angles)
+            if self._with_robot:
+                joint_angles = self._get_joint_angles(pos, orn)
+                act.append(joint_angles)
+            else:
+                act.append([])
             poses[i] = [pos, orn]
             current_pose, current_orn_norm = pos, orn_norm
         self._set_joint_pose(joint_pose)
@@ -232,9 +242,10 @@ class Robot:
 
     def _get_joint_pose(self):
         pose = []
-        result = p.getJointStates(self.robot_id, self._joint_indices)
-        for item in result:
-            pose.append(item[0])
+        if self._with_robot:
+            result = p.getJointStates(self.robot_id, self._joint_indices)
+            for item in result:
+                pose.append(item[0])
         return pose
 
     def _get_joint_angles(self, pos, orn):
@@ -247,8 +258,9 @@ class Robot:
 
     def reset(self, pose):
         pos, orn = get_pose_orn(*pose)
-        joint_angles = self._get_joint_angles(pos, orn)
-        self._set_joint_pose(joint_angles)
+        if self._with_robot:
+            joint_angles = self._get_joint_angles(pos, orn)
+            self._set_joint_pose(joint_angles)
         self._refresh_robot_pose(pos, orn)
         self._reset_termination_variables()
 

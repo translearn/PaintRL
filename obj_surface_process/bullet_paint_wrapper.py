@@ -390,13 +390,18 @@ class Part:
         self._last_painted_pixels = []
 
         self._length_width_ratio = None
+        # speed up the _get_texel method
+        self._texel_limit = 0
 
     def _get_texel(self, i, j):
-        return min((i + j * self.texture_width) * 3, len(self.texture_pixels) - 4)
+        return min((i + j * self.texture_width) * 3, self._texel_limit)
 
     def _is_changed(self, texel, color):
-        return self.texture_pixels[texel] == color[0] and self.texture_pixels[texel + 1] == color[1] \
-               and self.texture_pixels[texel + 2] == color[2]
+        # compare only the first channel to speed up the process
+        # TODO: change back for real application
+        # return self.texture_pixels[texel] == color[0] and self.texture_pixels[texel + 1] == color[1] \
+        #        and self.texture_pixels[texel + 2] == color[2]
+        return self.texture_pixels[texel] == color[0]
 
     def change_pixel(self, color, i, j):
         texel = self._get_texel(i, j)
@@ -510,6 +515,7 @@ class Part:
         Store relevant pixels according to its side of the part into self.profile
         Mark irrelevant pixels to IRRELEVANT_COLOR
         """
+        self._texel_limit = len(self.texture_pixels) - 4
         for _, p_map in self.uv_map.items():
             for bary in p_map:
                 if bary.get_side():
@@ -603,8 +609,7 @@ class Part:
 
     def get_pixel_status(self, pixel, color):
         texel = self._get_texel(*pixel)
-        texel_color = self.texture_pixels[texel:texel + 3]
-        return color == texel_color
+        return self._is_changed(texel, color)
 
     def get_job_status(self, side, color):
         color = _get_color(color)
@@ -895,7 +900,7 @@ class SectionObservation(Observation):
             angle = np.arctan2(relative_y, relative_x)
             if angle < 0:
                 angle = 2 * np.pi + angle
-            phase = int(angle / basis)
+            phase = angle // basis
             # distance weighted point should be redesigned, first without distance weight
             distance = np.sqrt(relative_x ** 2 + relative_y ** 2)
             weighted_distance = np.exp(-distance * SectionObservation.DISTANCE_FACTOR)

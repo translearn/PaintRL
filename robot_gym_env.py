@@ -116,10 +116,10 @@ class RobotGymEnv(gym.Env):
     reward_range = (-1e4, 1e4)
 
     # Adjust env by hand!!!
-    ACTION_SHAPE = 1
+    ACTION_SHAPE = 2
     ACTION_MODE = 'continuous'
-    discrete_granularity = 18
-    early_termination_mode = False
+    discrete_granularity = 20
+    early_termination_mode = True
     OBS_MODE = 'section'
 
     if ACTION_MODE == 'continuous':
@@ -148,7 +148,7 @@ class RobotGymEnv(gym.Env):
             cls.observation_space = spaces.Box(low=0.0, high=1.0, shape=(20 * 20 + 2,), dtype=np.float32)
 
     @classmethod
-    def change_action_mode(cls, shape=2, mode='continuous', discrete_granularity=18):
+    def change_action_mode(cls, shape=2, mode='continuous', discrete_granularity=20):
         cls.ACTION_SHAPE = shape
         cls.ACTION_MODE = mode
         if shape == 1 and mode == 'continuous':
@@ -207,10 +207,11 @@ class RobotGymEnv(gym.Env):
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
 
     def _load_environment(self):
-        p.loadURDF('plane.urdf', (0, 0, 0), useFixedBase=True)
+        if self._renders:
+            p.loadURDF('plane.urdf', (0, 0, 0), useFixedBase=True)
         self._part_id = p.load_part(self._renders, RobotGymEnv.OBS_MODE,
                                     os.path.join(self._urdf_root, 'urdf', 'painting', Part_Dict[1][0]),
-                                    (-0.4, -0.6, 0.25), useFixedBase=True)
+                                    (-0.4, -0.6, 0.25), useFixedBase=True, flags=p.URDF_ENABLE_SLEEPING)
         self._start_points = p.get_start_points(self._part_id, p.Side.front, mode='all')
         self.robot = Robot(self._step_manager, 'kuka_iiwa/model_free_base.urdf', pos=(0.2, -0.2, 0),
                            orn=p.getQuaternionFromEuler((0, 0, math.pi*3/2)), with_robot=self._with_robot)
@@ -254,14 +255,14 @@ class RobotGymEnv(gym.Env):
         overlap_penalty = 0.1 * (1 - paint_succeed_rate)
         # overlap_penalty = 1 - paint_succeed_rate
         total_penalty = time_step_penalty + off_part_penalty + overlap_penalty
-        assert 0 <= total_penalty <= 1.2, 'penalty out of range!'
         return total_penalty
 
     def _preprocess_action(self, action):
         if self.ACTION_MODE == 'continuous':
             return action
         else:
-            return [action / self.action_space.n]
+            action = action - self.action_space.n / 2
+            return [2 * action / self.action_space.n]
 
     def step(self, action):
         action = self._preprocess_action(action)
@@ -281,7 +282,7 @@ class RobotGymEnv(gym.Env):
         if self._rollout:
             p.removeAllUserDebugItems()
             p.reset_part(self._part_id, self._paint_side, self._paint_color, 0, 0)
-            start_point = self._start_points[randint(0, len(self._start_points) - 1)]
+            start_point = self._start_points[0]
         else:
             painted_percent = 0  # randint(0, 49)
             painted_mode = randint(0, 7)
@@ -336,23 +337,26 @@ if __name__ == '__main__':
         #     env.step([i, 1])
         #     env.step([-i, -1])
         #     i += 0.01
-        env.step([-0.5])
-        env.step([1])
-        env.step([-0.5])
-        env.step([0.25])
-        env.step([-0.75])
-        env.step([1])
-        env.step([0.5])
-        env.step([-1])
-        env.step([-0.5])
-        env.step([0])
-        env.step([0])
-        # env.step([1, 1])
-        # for _ in range(20):
-        #     env.step([0, 1])
-        # env.reset()
-        # env.step([0, 1])
-        # env.step([0, 1])
+        # env.step([-0.5])
+        # env.step([1])
+        # env.step([-0.5])
+        # env.step([0.25])
+        # env.step([-0.75])
+        # env.step([1])
+        # env.step([0.5])
+        # env.step([-1])
+        # env.step([-0.5])
+        # env.step([0])
+        # env.step([0])
+        # for i in range(10):
+        #     env.step(i)
+        #     env.step(20 - i)
+        env.step([1, 1])
+        for _ in range(20):
+            env.step([0, 1])
+        env.reset()
+        env.step([0, 1])
+        env.step([0, 1])
         # from random import uniform
         # import cProfile as Profile
         #
@@ -367,7 +371,7 @@ if __name__ == '__main__':
         #             break
         #     pr.disable()
         #
-        # pr.dump_stats('/home/pyang/profile.pstat')
+        # pr.dump_stats('/home/pyang/profile2.pstat')
         #
         # import pstats
         #
