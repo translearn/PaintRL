@@ -707,7 +707,7 @@ class Part:
         if self._obs == 'section':
             self._obs_handler = SectionObservation(self)
         else:
-            self._obs_handler = GridObservation(self, 20)
+            self._obs_handler = GridObservation(self, 10)
 
     def set_ranges_along_principle(self, ranges):
         self.ranges = ranges

@@ -116,11 +116,11 @@ class RobotGymEnv(gym.Env):
     reward_range = (-1e4, 1e4)
 
     # Adjust env by hand!!!
-    ACTION_SHAPE = 2
-    ACTION_MODE = 'continuous'
+    ACTION_SHAPE = 1
+    ACTION_MODE = 'discrete'
     discrete_granularity = 20
     early_termination_mode = True
-    OBS_MODE = 'section'
+    OBS_MODE = 'grid'
 
     if ACTION_MODE == 'continuous':
         if ACTION_SHAPE == 2:
@@ -131,7 +131,7 @@ class RobotGymEnv(gym.Env):
         action_space = spaces.Discrete(discrete_granularity)
 
     observation_space = spaces.Box(low=0.0, high=1.0, shape=(18 + 2,), dtype=np.float32) if OBS_MODE == 'section'\
-        else spaces.Box(low=0.0, high=1.0, shape=(20 * 20 + 2,), dtype=np.float32)
+        else spaces.Box(low=0.0, high=1.0, shape=(10 * 10 + 2,), dtype=np.float32)
 
     # class methods below does not support in ray distributed framework
     @classmethod
@@ -145,16 +145,17 @@ class RobotGymEnv(gym.Env):
         if mode == 'section':
             cls.observation_space = spaces.Box(low=0.0, high=1.0, shape=(18 + 2,), dtype=np.float32)
         else:
-            cls.observation_space = spaces.Box(low=0.0, high=1.0, shape=(20 * 20 + 2,), dtype=np.float32)
+            cls.observation_space = spaces.Box(low=0.0, high=1.0, shape=(10 * 10 + 2,), dtype=np.float32)
 
     @classmethod
     def change_action_mode(cls, shape=2, mode='continuous', discrete_granularity=20):
         cls.ACTION_SHAPE = shape
         cls.ACTION_MODE = mode
-        if shape == 1 and mode == 'continuous':
-            cls.action_space = spaces.Box(np.array(-1,), np.array(-1,), dtype=np.float32)
-        elif shape == 2 and mode == 'continuous':
-            cls.action_space = spaces.Box(np.array((-1, -1)), np.array((1, 1)), dtype=np.float32)
+        if mode == 'continuous':
+            if shape == 1:
+                cls.action_space = spaces.Box(np.array(-1,), np.array(-1,), dtype=np.float32)
+            else:
+                cls.action_space = spaces.Box(np.array((-1, -1)), np.array((1, 1)), dtype=np.float32)
         else:
             cls.action_space = spaces.Discrete(discrete_granularity)
 
@@ -348,15 +349,15 @@ if __name__ == '__main__':
         # env.step([-0.5])
         # env.step([0])
         # env.step([0])
-        # for i in range(10):
-        #     env.step(i)
-        #     env.step(20 - i)
-        env.step([1, 1])
-        for _ in range(20):
-            env.step([0, 1])
-        env.reset()
-        env.step([0, 1])
-        env.step([0, 1])
+        for i in range(10):
+            env.step(i)
+            env.step(20 - i)
+        # env.step([1, 1])
+        # for _ in range(20):
+        #     env.step([0, 1])
+        # env.reset()
+        # env.step([0, 1])
+        # env.step([0, 1])
         # from random import uniform
         # import cProfile as Profile
         #

@@ -7,7 +7,7 @@ import obj_surface_process.bullet_paint_wrapper as p
 def _get_target_projection_params(projection_distance):
     ratio = projection_distance / 0.5
     radius = 0.25 * ratio
-    resolution = 0.02 * ratio
+    resolution = 0.02 * ratio * 1.414  # halved the resolution to speed up the process
     target_ray_plane = projection_distance
     return radius, resolution, target_ray_plane
 
