@@ -4,9 +4,13 @@ from paint_ppo import main
 if __name__ == '__main__':
 
     configuration = {
+        # 'model': {
+        #     'custom_model': 'paint_model',
+        #     'custom_options': {},
+        # },
         'model': {
-            'custom_model': 'paint_model',
-            'custom_options': {},
+            'fcnet_hiddens': [256, 128],
+            'use_lstm': False,
         },
         'num_workers': 5,
         'batch_mode': 'truncate_episodes',

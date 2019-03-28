@@ -130,7 +130,7 @@ def main(algorithm, config):
     experiment_config['paint']['config']['callbacks'] = call_backs
     if args.mode == 'train':
         ray.init(object_store_memory=10000000000, redis_max_memory=10000000000, log_to_driver=True)
-        # ray.init(redis_address='141.3.80.30:6379')
+        # ray.init(redis_address='141.3.81.141:6379')
         experiment_config['paint']['config']['env_config'] = _make_env_config()
         tune.run_experiments(experiment_config)
     else:
@@ -157,13 +157,14 @@ if __name__ == '__main__':
         # },
         'model': {
             'fcnet_hiddens': [256, 128],
+            # 'use_lstm': True,
         },
         'batch_mode': 'truncate_episodes',
         'observation_filter': 'NoFilter',
-        'vf_share_layers': True,
+        'vf_clip_param': 100.0,
 
-        'sample_batch_size': 50,
-        'train_batch_size': 1500,
+        'sample_batch_size': 100,
+        'train_batch_size': 3000,
         'sgd_minibatch_size': 64,
         'num_sgd_iter': 16,
     }

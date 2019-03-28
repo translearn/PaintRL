@@ -10,8 +10,9 @@ if __name__ == '__main__':
         'smooth_target_policy': True,
 
         # 'model': {
-        #     'custom_model': 'paint_layer_model',
-        #     'custom_options': {},  # extra options to pass to your model
+        #     # 'custom_model': 'paint_layer_model',
+        #     # 'custom_options': {},  # extra options to pass to your model
+        #     'use_lstm': False,
         # },
 
         'actor_hiddens': [256, 128],
