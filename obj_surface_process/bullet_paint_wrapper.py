@@ -662,8 +662,10 @@ class Part:
                     # bary.draw_face_normal()
         if mode == 'edge':
             start_points = self._get_edge_start_points(start_points, side)
-        if mode != 'anchor':
+        if mode in ('edge', 'all'):
             self._start_points[side].extend(start_points)
+        if mode == 'fixed':
+            self._start_points[side] = [self._start_points[side][0]]
         start_pos = [item[0] for item in self._start_points[side]]
         self._start_pos[side] = cKDTree(start_pos)
         return self._start_points[side]

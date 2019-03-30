@@ -115,12 +115,13 @@ class RobotGymEnv(gym.Env):
 
     reward_range = (-1e4, 1e4)
 
-    # Adjust env by hand!!!
+    # Adjust env by hand when using Ray!!!
     ACTION_SHAPE = 1
     ACTION_MODE = 'discrete'
     discrete_granularity = 20
-    early_termination_mode = True
-    OBS_MODE = 'grid'
+    early_termination_mode = False
+    OBS_MODE = 'section'
+    START_POINT_MODE = 'fixed'
 
     if ACTION_MODE == 'continuous':
         if ACTION_SHAPE == 2:
@@ -162,6 +163,19 @@ class RobotGymEnv(gym.Env):
     @classmethod
     def set_termination_mode(cls, mode):
         cls.early_termination_mode = mode
+
+    @classmethod
+    def set_start_point_mode(cls, mode):
+        """
+        define the initial position of the agent on a part, which will be chosen from some random points
+        :param mode:
+         'fixed' only one point,
+         'anchor' four anchor points,
+         'edge' edge points,
+          'all' all points, namely all of the triangle centers
+        :return:
+        """
+        cls.START_POINT_MODE = mode
 
     def __init__(self, urdf_root, with_robot=True, renders=False, render_video=False,
                  rollout=False):
@@ -213,7 +227,7 @@ class RobotGymEnv(gym.Env):
         self._part_id = p.load_part(self._renders, RobotGymEnv.OBS_MODE,
                                     os.path.join(self._urdf_root, 'urdf', 'painting', Part_Dict[1][0]),
                                     (-0.4, -0.6, 0.25), useFixedBase=True, flags=p.URDF_ENABLE_SLEEPING)
-        self._start_points = p.get_start_points(self._part_id, p.Side.front, mode='all')
+        self._start_points = p.get_start_points(self._part_id, p.Side.front, mode=self.START_POINT_MODE)
         self.robot = Robot(self._step_manager, 'kuka_iiwa/model_free_base.urdf', pos=(0.2, -0.2, 0),
                            orn=p.getQuaternionFromEuler((0, 0, math.pi*3/2)), with_robot=self._with_robot)
         p.setGravity(0, 0, -10)
