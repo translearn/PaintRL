@@ -195,7 +195,8 @@ class Robot:
     def _count_not_on_part(self):
         # check consecutive not on part
         if self._last_on_part:
-            self._terminate_counter = 0
+            self._last_on_part = False
+            return
         self._terminate_counter += 1
         self._last_on_part = False
         if self._terminate_counter > Robot.NOT_ON_PART_TERMINATE_STEPS:

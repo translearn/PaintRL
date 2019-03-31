@@ -120,8 +120,8 @@ class RobotGymEnv(gym.Env):
     ACTION_MODE = 'discrete'
     discrete_granularity = 20
     early_termination_mode = False
-    OBS_MODE = 'section'
-    START_POINT_MODE = 'fixed'
+    OBS_MODE = 'simple'
+    START_POINT_MODE = 'anchor'
 
     if ACTION_MODE == 'continuous':
         if ACTION_SHAPE == 2:
@@ -130,16 +130,19 @@ class RobotGymEnv(gym.Env):
             action_space = spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)
     else:
         action_space = spaces.Discrete(discrete_granularity)
-
-    observation_space = spaces.Box(low=0.0, high=1.0, shape=(18 + 2,), dtype=np.float32) if OBS_MODE == 'section'\
-        else spaces.Box(low=0.0, high=1.0, shape=(10 * 10 + 2,), dtype=np.float32)
+    if OBS_MODE == 'section':
+        observation_space = spaces.Box(low=0.0, high=1.0, shape=(18 + 2,), dtype=np.float32)
+    elif OBS_MODE == 'grid':
+        spaces.Box(low=0.0, high=1.0, shape=(10 * 10 + 2,), dtype=np.float32)
+    else:
+        observation_space = spaces.Box(low=0.0, high=1.0, shape=(2,), dtype=np.float32)
 
     # class methods below does not support in ray distributed framework
     @classmethod
     def change_obs_mode(cls, mode='section'):
         """
         change the observation mode
-        :param mode: 'section', 'grid'
+        :param mode: 'section', 'grid', 'simple'
         :return:
         """
         cls.OBS_MODE = mode
@@ -237,8 +240,6 @@ class RobotGymEnv(gym.Env):
         # cut the long episode to save sampling time
         self._step_counter += 1
         # self._max_possible_point = p.get_job_limit(self._part_id, self._paint_side)
-        # checked with hand 9148, the 9600 can hardly be reached!
-        # self._max_possible_point = 9148
         finished = False if self._max_possible_point > self._last_status else True
         robot_termination = self.robot.termination_request()
 
@@ -251,8 +252,10 @@ class RobotGymEnv(gym.Env):
 
     def _augmented_observation(self):
         pose, _ = self.robot.get_observation()
-        status = p.get_partial_observation(self._part_id, self._paint_side, self._paint_color, pose)
         normalized_pose = p.get_normalized_pose(self._part_id, self._paint_side, pose)
+        if self.OBS_MODE == 'simple':
+            return list(normalized_pose)
+        status = p.get_partial_observation(self._part_id, self._paint_side, self._paint_color, pose)
         return list(status) + list(normalized_pose)
 
     def _reward(self):
@@ -306,7 +309,6 @@ class RobotGymEnv(gym.Env):
             p.reset_part(self._part_id, self._paint_side, self._paint_color,
                          painted_percent, painted_mode, with_start_point=False)
             start_point = self._start_points[randint(0, len(self._start_points) - 1)]
-            # start_point = self._start_points[0]
         self._step_counter = 0
         self._total_return = 0
         self._total_reward = 0
