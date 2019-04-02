@@ -343,11 +343,64 @@ class TextWriter:
         self._write_line('Step: {}'.format(step))
 
 
+class ColorHandler:
+
+    def __init__(self, part):
+        self._part = part
+
+    def is_changed(self, texel, color):
+        raise NotImplementedError
+
+    def change_pixel(self, color, i, j):
+        raise NotImplementedError
+
+
+class RGBColorHandler(ColorHandler):
+
+    def is_changed(self, texel, color):
+        # compare only the first channel to speed up the process
+        # TODO: change back for real application
+        # return self.texture_pixels[texel] == color[0] and self.texture_pixels[texel + 1] == color[1] \
+        #        and self.texture_pixels[texel + 2] == color[2]
+        return self._part.texture_pixels[texel] == color[0]
+
+    def change_pixel(self, color, i, j):
+        texel = self._part.get_texel(i, j)
+        if self.is_changed(texel, color):
+            return False
+        self._part.texture_pixels[texel] = color[0]
+        self._part.texture_pixels[texel + 1] = color[1]
+        self._part.texture_pixels[texel + 2] = color[2]
+        return True
+
+
+class HSIColorHandler(ColorHandler):
+    """
+    the first channel, namely red channel changed from 0 to 255, simulate the intensity change in HSI color space
+    RED_NULL = (0, 0, 0)
+    RED_FULL = (255, 0, 0)
+    """
+
+    def is_changed(self, texel, color):
+        # TODO: change this for real application
+        return self._part.texture_pixels[texel] >= 255
+
+    def change_pixel(self, color, i, j):
+        texel = self._part.get_texel(i, j)
+        if self.is_changed(texel, color):
+            return False
+        self._part.texture_pixels[texel] += 1
+        self._part.texture_pixels[texel + 1] += 1
+        self._part.texture_pixels[texel + 2] += 1
+        return True
+
+
 class Part:
     HOOK_DISTANCE_TO_PART = 0.1
     # Color to mark irrelevant pixels, used for preprocessing and calculate rewards
     IRRELEVANT_COLOR = (0, 0, 0)
     FRONT_COLOR = (0.75, 0.75, 0.75)
+    # FRONT_COLOR = (0, 0, 1)
     BACK_COLOR = (0, 1, 0)
     # Place holder in KD-tree, no point can have such a coordinate
     IRRELEVANT_POSE = (10, 10, 10)
@@ -361,11 +414,12 @@ class Part:
     extract the pixels on the part to be painted.
     """
 
-    def __init__(self, urdf_id=-1, render=True, observation='section'):
+    def __init__(self, urdf_id=-1, render=True, observation='section', obs_grad=10):
         self.urdf_id = urdf_id
         self._render = render
         self._obs = observation
         self._obs_handler = None
+        self.obs_grad = obs_grad
         self.uv_map = None
         self.bary_list = None
         self.vertices = None
@@ -379,6 +433,8 @@ class Part:
         self._start_pos = {}
         self.profile = {}
         self.profile_dicts = {}
+        self.pixel_positions = {}
+        self.pixel_kd_tree = {}
         self.principle_axes = None
         self.non_principle_axis = None
         self.ranges = None
@@ -392,8 +448,9 @@ class Part:
         self._length_width_ratio = None
         # speed up the _get_texel method
         self._texel_limit = 0
+        self._color_handler = None
 
-    def _get_texel(self, i, j):
+    def get_texel(self, i, j):
         return min((i + j * self.texture_width) * 3, self._texel_limit)
 
     def _is_changed(self, texel, color):
@@ -404,18 +461,13 @@ class Part:
         return self.texture_pixels[texel] == color[0]
 
     def change_pixel(self, color, i, j):
-        texel = self._get_texel(i, j)
+        texel = self.get_texel(i, j)
         if self._is_changed(texel, color):
             return False
         self.texture_pixels[texel] = color[0]
         self.texture_pixels[texel + 1] = color[1]
         self.texture_pixels[texel + 2] = color[2]
         return True
-
-    def _change_texel_color(self, color, bary, point):
-        i, j = bary.get_texel(point, self.texture_width, self.texture_height)
-        changed = self.change_pixel(color, i, j)
-        return i, j, changed
 
     def _get_closest_bary(self, point, nearest_vertex, side):
         closest_uvw = -1
@@ -447,25 +499,18 @@ class Part:
 
     def paint(self, points, color, side):
         color = _get_color(color)
-        # current_side = _get_side([-i for i in side], self.front_normal)
-        current_side = side
         # no intersection then no paint
         if not points:
             return [], 0
-        nearest_vertices = self.vertices_kd_tree[current_side].query(points, k=1)[1]
+        nearest_vertices = self.pixel_kd_tree[side].query(points, k=1)[1]
         affected_pixels = []
         succeed_counter = 0
-        for i, point in enumerate(points):
-            bary = self._get_closest_bary(point, nearest_vertices[i], current_side)
-            if bary:
-                status = self._change_texel_color(color, bary, point)
-                affected_pixels.append((status[0], status[1]))
-                if status[2]:
-                    succeed_counter += 1
-                # for bary in self.uv_map[nearest_vertices[i]]:
-                #     bary.add_debug_info()
-                #     bary.draw_face_normal()
-        # _get_texture_image(self.texture_pixels, self.texture_width, self.texture_height).show()
+        for index in nearest_vertices:
+            i, j = self.profile[side][index]
+            changed = self._color_handler.change_pixel(color, i, j)
+            affected_pixels.append((i, j))
+            if changed:
+                succeed_counter += 1
         changeTexture(self.texture_id, self.texture_pixels, self.texture_width, self.texture_height)
         affected_pixels = list(set(affected_pixels))
         valid_pixels = [pixel for pixel in affected_pixels if pixel not in self._last_painted_pixels]
@@ -509,6 +554,7 @@ class Part:
                     point_list[side][key] = Part.IRRELEVANT_POSE
         for side in self.profile:
             self.vertices_kd_tree[side] = cKDTree(point_list[side])
+            self.pixel_kd_tree[side] = cKDTree(self.pixel_positions[side])
 
     def preprocess(self):
         """
@@ -525,6 +571,7 @@ class Part:
                     if side not in self.profile:
                         self.profile[side] = []
                         self.profile_dicts[side] = {}
+                        self.pixel_positions[side] = []
                     self.profile[side].extend(pixels)
                     self.profile_dicts[side].update(pixel_dict)
         if self.profile:
@@ -534,8 +581,10 @@ class Part:
                     invalid_side = side
                     continue
                 self.profile[side] = list(set(self.profile[side]))
+                self.pixel_positions[side] = [self.profile_dicts[side][i] for i in self.profile[side]]
             del self.profile[invalid_side]
             del self.profile_dicts[invalid_side]
+            del self.pixel_positions[invalid_side]
             self._label_part()
             self.init_texture = self.texture_pixels.copy()
             self._build_kd_tree()
@@ -608,7 +657,7 @@ class Part:
         return self.texture_width, self.texture_height
 
     def get_pixel_status(self, pixel, color):
-        texel = self._get_texel(*pixel)
+        texel = self.get_texel(*pixel)
         return self._is_changed(texel, color)
 
     def get_job_status(self, side, color):
@@ -639,10 +688,10 @@ class Part:
         get the points of initial pose
         :param side: side of the part
         :param mode:
+            fixed: only the bottom left point of the part
             anchor: only four anchor points on the four corner of a part
             edge: only valid points on the edge of the part
             all: all valid points
-
         :return: start points
         """
         start_points = []
@@ -707,9 +756,10 @@ class Part:
         self._set_grid_dict()
         self._correct_bary_normals()
         if self._obs == 'section':
-            self._obs_handler = SectionObservation(self)
+            self._obs_handler = SectionObservation(self, self.obs_grad)
         else:
-            self._obs_handler = GridObservation(self, 10)
+            self._obs_handler = GridObservation(self, self.obs_grad)
+        self._color_handler = RGBColorHandler(self)
 
     def set_ranges_along_principle(self, ranges):
         self.ranges = ranges
@@ -866,9 +916,9 @@ class Part:
             addUserDebugLine((pose[0], self.grid_dict[side][i][0], self.ranges[1][0] + (i + 1) * step_size),
                              (pose[0], self.grid_dict[side][i][1], self.ranges[1][0] + (i + 1) * step_size), (1, 0, 0))
 
-    def get_partial_observation(self, side, color, pose, sections=18):
+    def get_partial_observation(self, side, color, pose):
         color = _get_color(color)
-        return self._obs_handler.get_observation(side, color, pose, sections)
+        return self._obs_handler.get_observation(side, color, pose)
 
     def write_text_info(self, action, reward, penalty, total_return, step):
         self._writer.write_text_info(action, reward, penalty, total_return, step)
@@ -879,7 +929,7 @@ class Observation:
     def __init__(self, part):
         self._part = part
 
-    def get_observation(self, side, color, pose, sections=18):
+    def get_observation(self, side, color, pose):
         raise NotImplementedError
 
 
@@ -887,13 +937,15 @@ class SectionObservation(Observation):
     # Distance weight factor, 0 means no distance weight
     DISTANCE_FACTOR = 1
 
-    def get_observation(self, side, color, pose, sections=18):
+    def __init__(self, part, section):
         # 360 / 20 = 18 sections
-        obs = {}
-        result = np.zeros(sections, dtype=np.float32)
-        for i in range(sections):
-            obs[i] = 0
-        basis = 2 * np.pi / sections
+        Observation.__init__(self, part)
+        self.section = section
+
+    def get_observation(self, side, color, pose):
+        obs = {i: 0 for i in range(self.section)}
+        result = np.zeros(self.section, dtype=np.float32)
+        basis = 2 * np.pi / self.section
         for pixel, coordinate in self._part.profile_dicts[side].items():
             relative_x = coordinate[self._part.principle_axes[0]] - pose[self._part.principle_axes[0]]
             relative_y = coordinate[self._part.principle_axes[1]] - pose[self._part.principle_axes[1]]
@@ -978,7 +1030,7 @@ class GridObservation(Observation):
                 for pixel in self._grid_pixels[side][i][j]:
                     self._part.change_pixel(color, *pixel)
 
-    def get_observation(self, side, color, *_):
+    def get_observation(self, side, color, _):
         # self._show_grids(color, side)
         obs = np.zeros((self._h_granularity, self._h_granularity), dtype=np.float32)
         for i in range(self._h_granularity):
@@ -1192,12 +1244,12 @@ def _cache_obj(urdf_obj, obj_path):
 
 def load_part(*args, **kwargs):
     try:
-        path = args[2]
-        u_id = loadURDF(*args[2:], **kwargs)
+        path = args[3]
+        u_id = loadURDF(*args[3:], **kwargs)
         obj_file_path, texture_file_path = _retrieve_related_file_path(path)
         # Texture file exists, prepare for texture manipulation
         if texture_file_path:
-            part = Part(u_id, args[0], args[1])
+            part = Part(u_id, args[0], args[1], args[2])
             _urdf_cache[u_id] = part
             _cache_texture(part, obj_file_path, texture_file_path)
         return u_id
@@ -1246,8 +1298,8 @@ def get_normalized_pose(urdf_id, side, pose):
     return _urdf_cache[urdf_id].get_normalized_pose(side, pose)
 
 
-def get_partial_observation(urdf_id, side, color, pose, sections=18):
-    return _urdf_cache[urdf_id].get_partial_observation(side, color, pose, sections)
+def get_partial_observation(urdf_id, side, color, pose):
+    return _urdf_cache[urdf_id].get_partial_observation(side, color, pose)
 
 
 def reset_part(urdf_id, side, color, percent, mode, with_start_point=False):

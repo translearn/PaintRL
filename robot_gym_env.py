@@ -118,10 +118,15 @@ class RobotGymEnv(gym.Env):
     # Adjust env by hand when using Ray!!!
     ACTION_SHAPE = 1
     ACTION_MODE = 'discrete'
-    discrete_granularity = 20
-    early_termination_mode = False
-    OBS_MODE = 'simple'
-    START_POINT_MODE = 'anchor'
+    DISCRETE_GRANULARITY = 4
+
+    TERMINATION_MODE = 'late'
+    SWITCH_THRESHOLD = 0.9
+
+    OBS_MODE = 'section'
+    OBS_GRAD = 4
+
+    START_POINT_MODE = 'fixed'
 
     if ACTION_MODE == 'continuous':
         if ACTION_SHAPE == 2:
@@ -129,11 +134,11 @@ class RobotGymEnv(gym.Env):
         else:
             action_space = spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)
     else:
-        action_space = spaces.Discrete(discrete_granularity)
+        action_space = spaces.Discrete(DISCRETE_GRANULARITY)
     if OBS_MODE == 'section':
-        observation_space = spaces.Box(low=0.0, high=1.0, shape=(18 + 2,), dtype=np.float32)
+        observation_space = spaces.Box(low=0.0, high=1.0, shape=(OBS_GRAD + 2,), dtype=np.float32)
     elif OBS_MODE == 'grid':
-        spaces.Box(low=0.0, high=1.0, shape=(10 * 10 + 2,), dtype=np.float32)
+        observation_space = spaces.Box(low=0.0, high=1.0, shape=(OBS_GRAD * OBS_GRAD + 2,), dtype=np.float32)
     else:
         observation_space = spaces.Box(low=0.0, high=1.0, shape=(2,), dtype=np.float32)
 
@@ -149,7 +154,8 @@ class RobotGymEnv(gym.Env):
         if mode == 'section':
             cls.observation_space = spaces.Box(low=0.0, high=1.0, shape=(18 + 2,), dtype=np.float32)
         else:
-            cls.observation_space = spaces.Box(low=0.0, high=1.0, shape=(10 * 10 + 2,), dtype=np.float32)
+            cls.observation_space = spaces.Box(low=0.0, high=1.0, shape=(cls.OBS_GRAD * cls.OBS_GRAD + 2,),
+                                               dtype=np.float32)
 
     @classmethod
     def change_action_mode(cls, shape=2, mode='continuous', discrete_granularity=20):
@@ -165,7 +171,15 @@ class RobotGymEnv(gym.Env):
 
     @classmethod
     def set_termination_mode(cls, mode):
-        cls.early_termination_mode = mode
+        """
+        set termination mode
+        :param mode:
+            'early', termination controlled by average reward
+            'late', termination clipped by max permitted step
+            'hybrid', termination is early at first, after reached threshold will switch to late mode
+        :return:
+        """
+        cls.TERMINATION_MODE = mode
 
     @classmethod
     def set_start_point_mode(cls, mode):
@@ -227,8 +241,8 @@ class RobotGymEnv(gym.Env):
     def _load_environment(self):
         if self._renders:
             p.loadURDF('plane.urdf', (0, 0, 0), useFixedBase=True)
-        self._part_id = p.load_part(self._renders, RobotGymEnv.OBS_MODE,
-                                    os.path.join(self._urdf_root, 'urdf', 'painting', Part_Dict[1][0]),
+        self._part_id = p.load_part(self._renders, RobotGymEnv.OBS_MODE, self.OBS_GRAD,
+                                    os.path.join(self._urdf_root, 'urdf', 'painting', self._part_name),
                                     (-0.4, -0.6, 0.25), useFixedBase=True, flags=p.URDF_ENABLE_SLEEPING)
         self._start_points = p.get_start_points(self._part_id, p.Side.front, mode=self.START_POINT_MODE)
         self.robot = Robot(self._step_manager, 'kuka_iiwa/model_free_base.urdf', pos=(0.2, -0.2, 0),
@@ -246,8 +260,11 @@ class RobotGymEnv(gym.Env):
         avg_reward = self._total_reward / self._step_counter
         # switch the mode of termination
         expected_avg_reward = self._max_possible_point / (RobotGymEnv.Expected_Episode_Length * 100)
-        if avg_reward < expected_avg_reward and self.early_termination_mode:
-            return True
+        if avg_reward < expected_avg_reward and self.TERMINATION_MODE != 'late':
+            if self.TERMINATION_MODE == 'early':
+                return True
+            elif self._total_reward < self.SWITCH_THRESHOLD * self._max_possible_point / 100:
+                return True
         return finished or robot_termination or self._step_counter > RobotGymEnv.EPISODE_MAX_LENGTH - 1
 
     def _augmented_observation(self):
@@ -365,9 +382,9 @@ if __name__ == '__main__':
         # env.step([-0.5])
         # env.step([0])
         # env.step([0])
-        for i in range(10):
+        for i in range(8):
             env.step(i)
-            env.step(20 - i)
+            env.step(8 - i)
         # env.step([1, 1])
         # for _ in range(20):
         #     env.step([0, 1])

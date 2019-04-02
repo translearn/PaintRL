@@ -12,6 +12,21 @@ def _get_target_projection_params(projection_distance):
     return radius, resolution, target_ray_plane
 
 
+def _get_uniformed_plain():
+    paint_plain = []
+    radius, resolution, target_ray_plane = _get_target_projection_params(0.2)
+    i = j = -radius
+    while i <= radius:
+        while j <= radius:
+            # Euclidean distance within the radius
+            if math.sqrt(math.pow(i, 2) + math.pow(j, 2)) <= radius:
+                paint_plain.append((i, j, target_ray_plane))
+            j += resolution
+        i += resolution
+        j = -radius
+    return paint_plain
+
+
 def get_pose_orn(pose, orn):
     old_z = (0, 0, 1)
     new_z = orn
@@ -151,18 +166,7 @@ class Robot:
             self._pose, self._orn = pos, orn
 
     def _set_up_paint_beam_plain(self):
-        self._paint_plain = []
-        # Here the 0.2 could be refactored.
-        radius, resolution, target_ray_plane = _get_target_projection_params(0.2)
-        i = j = -radius
-        while i <= radius:
-            while j <= radius:
-                # Euclidean distance within the radius
-                if math.sqrt(math.pow(i, 2) + math.pow(j, 2)) <= radius:
-                    self._paint_plain.append((i, j, target_ray_plane))
-                j += resolution
-            i += resolution
-            j = -radius
+        self._paint_plain = _get_uniformed_plain()
         self._plain_point_count = len(self._paint_plain)
 
     def _generate_paint_beams(self, show_debug_lines=False):
