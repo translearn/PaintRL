@@ -157,8 +157,9 @@ if __name__ == '__main__':
         # },
         'model': {
             'fcnet_hiddens': [256, 128],
-            # 'use_lstm': True,
+            'use_lstm': False,
         },
+        'vf_share_layers': False,
         'batch_mode': 'truncate_episodes',
         'observation_filter': 'NoFilter',
         'vf_clip_param': 100.0,

@@ -22,11 +22,11 @@ if __name__ == '__main__':
         'batch_mode': 'truncate_episodes',
 
         'buffer_size': 200000,
-        'prioritized_replay': False,
+        'prioritized_replay': True,
         'compress_observations': False,
 
         'learning_starts': 1000,
-        'sample_batch_size': 50,
+        'sample_batch_size': 100,
         'train_batch_size': 512,
 
         'num_gpus': 1,
