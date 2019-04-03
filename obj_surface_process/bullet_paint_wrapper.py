@@ -383,15 +383,16 @@ class HSIColorHandler(ColorHandler):
 
     def is_changed(self, texel, color):
         # TODO: change this for real application
-        return self._part.texture_pixels[texel] >= 255
+        # return self._part.texture_pixels[texel] >= 255
+        return self._part.texture_pixels[texel] <= 0
 
     def change_pixel(self, color, i, j):
         texel = self._part.get_texel(i, j)
         if self.is_changed(texel, color):
             return False
-        self._part.texture_pixels[texel] += 1
-        self._part.texture_pixels[texel + 1] += 1
-        self._part.texture_pixels[texel + 2] += 1
+        self._part.texture_pixels[texel] -= 5
+        self._part.texture_pixels[texel + 1] -= 5
+        self._part.texture_pixels[texel + 2] -= 5
         return True
 
 
@@ -399,8 +400,8 @@ class Part:
     HOOK_DISTANCE_TO_PART = 0.1
     # Color to mark irrelevant pixels, used for preprocessing and calculate rewards
     IRRELEVANT_COLOR = (0, 0, 0)
-    FRONT_COLOR = (0.75, 0.75, 0.75)
-    # FRONT_COLOR = (0, 0, 1)
+    # FRONT_COLOR = (0.75, 0.75, 0.75)
+    FRONT_COLOR = (1, 1, 1)
     BACK_COLOR = (0, 1, 0)
     # Place holder in KD-tree, no point can have such a coordinate
     IRRELEVANT_POSE = (10, 10, 10)
@@ -414,12 +415,13 @@ class Part:
     extract the pixels on the part to be painted.
     """
 
-    def __init__(self, urdf_id=-1, render=True, observation='section', obs_grad=10):
+    def __init__(self, urdf_id=-1, render=True, observation='section', obs_grad=10, color_mode='RGB'):
         self.urdf_id = urdf_id
         self._render = render
         self._obs = observation
         self._obs_handler = None
-        self.obs_grad = obs_grad
+        self._obs_grad = obs_grad
+        self._color_mode = color_mode
         self.uv_map = None
         self.bary_list = None
         self.vertices = None
@@ -448,26 +450,11 @@ class Part:
         self._length_width_ratio = None
         # speed up the _get_texel method
         self._texel_limit = 0
+        self.color_setter = RGBColorHandler(self)
         self._color_handler = None
 
     def get_texel(self, i, j):
         return min((i + j * self.texture_width) * 3, self._texel_limit)
-
-    def _is_changed(self, texel, color):
-        # compare only the first channel to speed up the process
-        # TODO: change back for real application
-        # return self.texture_pixels[texel] == color[0] and self.texture_pixels[texel + 1] == color[1] \
-        #        and self.texture_pixels[texel + 2] == color[2]
-        return self.texture_pixels[texel] == color[0]
-
-    def change_pixel(self, color, i, j):
-        texel = self.get_texel(i, j)
-        if self._is_changed(texel, color):
-            return False
-        self.texture_pixels[texel] = color[0]
-        self.texture_pixels[texel + 1] = color[1]
-        self.texture_pixels[texel + 2] = color[2]
-        return True
 
     def _get_closest_bary(self, point, nearest_vertex, side):
         closest_uvw = -1
@@ -527,16 +514,16 @@ class Part:
             front_color = _get_color(Part.FRONT_COLOR)
             back_color = _get_color(Part.BACK_COLOR)
             for point in target_pixels:
-                self.change_pixel(irr_color, *point)
+                self.color_setter.change_pixel(irr_color, *point)
             for point in self.profile[Side.back]:
-                self.change_pixel(back_color, *point)
+                self.color_setter.change_pixel(back_color, *point)
             for point in self.profile[Side.front]:
-                self.change_pixel(front_color, *point)
+                self.color_setter.change_pixel(front_color, *point)
         # _get_texture_image(self.texture_pixels, self.texture_width, self.texture_height).show()
         else:
             color = _get_color((0, 0, 0))
             for point in target_pixels:
-                self.change_pixel(color, *point)
+                self.color_setter.change_pixel(color, *point)
 
     def _build_kd_tree(self):
         side_label = {}
@@ -658,7 +645,7 @@ class Part:
 
     def get_pixel_status(self, pixel, color):
         texel = self.get_texel(*pixel)
-        return self._is_changed(texel, color)
+        return self.color_setter.is_changed(texel, color)
 
     def get_job_status(self, side, color):
         color = _get_color(color)
@@ -756,10 +743,13 @@ class Part:
         self._set_grid_dict()
         self._correct_bary_normals()
         if self._obs == 'section':
-            self._obs_handler = SectionObservation(self, self.obs_grad)
+            self._obs_handler = SectionObservation(self, self._obs_grad)
         else:
-            self._obs_handler = GridObservation(self, self.obs_grad)
-        self._color_handler = RGBColorHandler(self)
+            self._obs_handler = GridObservation(self, self._obs_grad)
+        if self._color_mode == 'RGB':
+            self._color_handler = RGBColorHandler(self)
+        else:
+            self._color_handler = HSIColorHandler(self)
 
     def set_ranges_along_principle(self, ranges):
         self.ranges = ranges
@@ -821,7 +811,7 @@ class Part:
         quantity = int(len(targets) * percent / 100)
         i = 0
         for i in range(quantity):
-            self.change_pixel(color, *targets[i])
+            self.color_setter.change_pixel(color, *targets[i])
         # self.get_texture_image().show()
         if with_start_point:
             rand_pixel = randint(i, len(targets) - 1)
@@ -1028,7 +1018,7 @@ class GridObservation(Observation):
                 if num_pixels == 0:
                     continue
                 for pixel in self._grid_pixels[side][i][j]:
-                    self._part.change_pixel(color, *pixel)
+                    self._part.color_setter.change_pixel(color, *pixel)
 
     def get_observation(self, side, color, _):
         # self._show_grids(color, side)
@@ -1244,12 +1234,12 @@ def _cache_obj(urdf_obj, obj_path):
 
 def load_part(*args, **kwargs):
     try:
-        path = args[3]
-        u_id = loadURDF(*args[3:], **kwargs)
+        path = args[4]
+        u_id = loadURDF(*args[4:], **kwargs)
         obj_file_path, texture_file_path = _retrieve_related_file_path(path)
         # Texture file exists, prepare for texture manipulation
         if texture_file_path:
-            part = Part(u_id, args[0], args[1], args[2])
+            part = Part(u_id, *args[0:4])
             _urdf_cache[u_id] = part
             _cache_texture(part, obj_file_path, texture_file_path)
         return u_id

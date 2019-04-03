@@ -127,6 +127,7 @@ class RobotGymEnv(gym.Env):
     OBS_GRAD = 4
 
     START_POINT_MODE = 'fixed'
+    COLOR_MODE = 'HSI'
 
     if ACTION_MODE == 'continuous':
         if ACTION_SHAPE == 2:
@@ -241,12 +242,13 @@ class RobotGymEnv(gym.Env):
     def _load_environment(self):
         if self._renders:
             p.loadURDF('plane.urdf', (0, 0, 0), useFixedBase=True)
-        self._part_id = p.load_part(self._renders, RobotGymEnv.OBS_MODE, self.OBS_GRAD,
+        self._part_id = p.load_part(self._renders, RobotGymEnv.OBS_MODE, self.OBS_GRAD, self.COLOR_MODE,
                                     os.path.join(self._urdf_root, 'urdf', 'painting', self._part_name),
                                     (-0.4, -0.6, 0.25), useFixedBase=True, flags=p.URDF_ENABLE_SLEEPING)
         self._start_points = p.get_start_points(self._part_id, p.Side.front, mode=self.START_POINT_MODE)
         self.robot = Robot(self._step_manager, 'kuka_iiwa/model_free_base.urdf', pos=(0.2, -0.2, 0),
-                           orn=p.getQuaternionFromEuler((0, 0, math.pi*3/2)), with_robot=self._with_robot)
+                           orn=p.getQuaternionFromEuler((0, 0, math.pi*3/2)), with_robot=self._with_robot,
+                           color_mode=self.COLOR_MODE)
         p.setGravity(0, 0, -10)
         self.reset()
 
@@ -263,6 +265,7 @@ class RobotGymEnv(gym.Env):
         if avg_reward < expected_avg_reward and self.TERMINATION_MODE != 'late':
             if self.TERMINATION_MODE == 'early':
                 return True
+            # Hybrid mode
             elif self._total_reward < self.SWITCH_THRESHOLD * self._max_possible_point / 100:
                 return True
         return finished or robot_termination or self._step_counter > RobotGymEnv.EPISODE_MAX_LENGTH - 1

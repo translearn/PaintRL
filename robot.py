@@ -1,6 +1,7 @@
 import os
 import math
 import numpy as np
+from random import uniform
 import obj_surface_process.bullet_paint_wrapper as p
 
 
@@ -25,6 +26,42 @@ def _get_uniformed_plain():
         i += resolution
         j = -radius
     return paint_plain
+
+
+def _get_beta_plain(beta):
+    paint_plain = []
+    distribution = {}
+    radius, resolution, target_ray_plane = _get_target_projection_params(0.2)
+    circles = math.ceil(radius / resolution)
+    total_points = 0
+    for i in range(1, circles + 1):
+        num_points = beta * (1 - (i / circles) ** 2) ** (beta - 1)
+        distribution[i] = num_points
+        total_points += num_points
+    # TODO: here the expected points should be inferred automatically
+    expected_points = 242
+    for i in distribution:
+        distribution[i] = round(expected_points * distribution[i] / total_points)
+    for i in range(1, circles + 1):
+        lower_radius = (i - 0.5) * resolution
+        upper_radius = (i + 0.5) * resolution
+        angle_resolution = 2 * math.pi / distribution[i] if distribution[i] else 0
+        for j in range(distribution[i]):
+            r = uniform(lower_radius, upper_radius)
+            # r = i * resolution
+            theta = j * angle_resolution
+            coordinate = pol2cart(r, theta)
+            paint_plain.append((*coordinate, target_ray_plane))
+    return paint_plain
+
+
+def debug_plain(paint_plain):
+    for point in paint_plain:
+        point_positive = list(point)
+        point_positive[2] += 0.02
+        point_negative = list(point)
+        point_negative[2] -= 0.02
+        p.addUserDebugLine(point_positive, point_negative, (1, 0, 0), lineWidth=2.5)
 
 
 def get_pose_orn(pose, orn):
@@ -108,7 +145,9 @@ class Robot:
     IN_POSE_TOLERANCE = 0.02
     NOT_ON_PART_TERMINATE_STEPS = 1000
 
-    def __init__(self, step_manager, urdf_path, pos=(0, 0, 0), orn=(0, 0, 0, 1), with_robot=True):
+    BETA = 2
+
+    def __init__(self, step_manager, urdf_path, pos=(0, 0, 0), orn=(0, 0, 0, 1), with_robot=True, color_mode='RGB'):
         self.robot_id = 0
 
         self._motor_count = 7
@@ -123,6 +162,7 @@ class Robot:
         self._motor_upper_limits = []
         self._max_velocities = []
         self._with_robot = with_robot
+        self._color_mode = color_mode
         # max velocity, etc. setup
         if self._with_robot:
             self.robot_id = p.loadURDF(urdf_path, pos, orn, useFixedBase=True, flags=p.URDF_USE_SELF_COLLISION)
@@ -166,7 +206,10 @@ class Robot:
             self._pose, self._orn = pos, orn
 
     def _set_up_paint_beam_plain(self):
-        self._paint_plain = _get_uniformed_plain()
+        if self._color_mode == 'RGB':
+            self._paint_plain = _get_uniformed_plain()
+        else:
+            self._paint_plain = _get_beta_plain(self.BETA)
         self._plain_point_count = len(self._paint_plain)
 
     def _generate_paint_beams(self, show_debug_lines=False):
@@ -324,7 +367,12 @@ if __name__ == '__main__':
         p.resetDebugVisualizerCamera(2.6, 180, -41, (0.0, -0.2, -0.33))
     else:
         p.connect(p.DIRECT)
-
-    current_dir = os.path.dirname(os.path.realpath(__file__))
-    franka_urdf_path = os.path.join(current_dir, 'urdf', 'franka_description', 'robots', 'panda_arm.urdf')
-    f = Robot(None, franka_urdf_path)
+    import pybullet_data
+    p.setAdditionalSearchPath(pybullet_data.getDataPath())
+    p.loadURDF('plane.urdf', (0, 0, 0), useFixedBase=True)
+    plain = _get_beta_plain(2)
+    debug_plain(plain)
+    print(1)
+    # current_dir = os.path.dirname(os.path.realpath(__file__))
+    # franka_urdf_path = os.path.join(current_dir, 'urdf', 'franka_description', 'robots', 'panda_arm.urdf')
+    # f = Robot(None, franka_urdf_path)
