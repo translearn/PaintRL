@@ -175,11 +175,14 @@ class Robot:
         self._set_up_paint_beam_plain()
 
         self.off_part_penalty = 0
+        self._last_turning_angle = 0
+        self.angle_diff = 0
 
     def _reset_termination_variables(self):
         self._terminate = False
         self._terminate_counter = 0
         self._last_on_part = True
+        self._last_turning_angle = 0
 
     def _load_robot_info(self):
         self.joint_count = p.getNumJoints(self.robot_id)
@@ -304,6 +307,14 @@ class Robot:
         norm_diff = np.linalg.norm(diff)
         return True if norm_diff < Robot.IN_POSE_TOLERANCE else False
 
+    def _set_turning_angle(self, delta_axis1, delta_axis2):
+        if delta_axis1 != 0:
+            new_angle = math.atan(abs(delta_axis2 / delta_axis1))
+        else:
+            new_angle = math.pi / 2
+        self.angle_diff = abs(new_angle - self._last_turning_angle)
+        self._last_turning_angle = new_angle
+
     def reset(self, pose):
         pos, orn = get_pose_orn(*pose)
         if self._with_robot:
@@ -311,6 +322,9 @@ class Robot:
             self._set_joint_pose(joint_angles)
         self._refresh_robot_pose(pos, orn)
         self._reset_termination_variables()
+
+    def get_angle_diff(self):
+        return self.angle_diff
 
     def termination_request(self):
         return self._terminate
@@ -335,6 +349,7 @@ class Robot:
         action = direction_normalize(action)
         delta_axis1 = action[0] * Robot.DELTA_X
         delta_axis2 = action[1] * Robot.DELTA_Y
+        self._set_turning_angle(delta_axis1, delta_axis2)
         act, poses = self._get_actions(part_id, delta_axis1, delta_axis2)
         possible_pixels = []
         succeeded_counter = 0

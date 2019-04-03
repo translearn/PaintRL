@@ -120,14 +120,15 @@ class RobotGymEnv(gym.Env):
     ACTION_MODE = 'discrete'
     DISCRETE_GRANULARITY = 4
 
-    TERMINATION_MODE = 'late'
+    TERMINATION_MODE = 'early'
     SWITCH_THRESHOLD = 0.9
 
     OBS_MODE = 'section'
     OBS_GRAD = 4
 
     START_POINT_MODE = 'fixed'
-    COLOR_MODE = 'HSI'
+    TURNING_PENALTY = True
+    COLOR_MODE = 'RGB'
 
     if ACTION_MODE == 'continuous':
         if ACTION_SHAPE == 2:
@@ -194,6 +195,10 @@ class RobotGymEnv(gym.Env):
         :return:
         """
         cls.START_POINT_MODE = mode
+
+    @classmethod
+    def switch_turning_penalty(cls, on_off):
+        cls.TURNING_PENALTY = on_off
 
     def __init__(self, urdf_root, with_robot=True, renders=False, render_video=False,
                  rollout=False):
@@ -293,6 +298,9 @@ class RobotGymEnv(gym.Env):
         overlap_penalty = 0.1 * (1 - paint_succeed_rate)
         # overlap_penalty = 1 - paint_succeed_rate
         total_penalty = time_step_penalty + off_part_penalty + overlap_penalty
+        if self.TURNING_PENALTY:
+            turning_penalty = 0.2 * (self.robot.get_angle_diff() / math.pi)
+            total_penalty += turning_penalty
         return total_penalty
 
     def _preprocess_action(self, action):
@@ -387,6 +395,7 @@ if __name__ == '__main__':
         # env.step([0])
         for i in range(8):
             env.step(i)
+            print(env.robot.get_angle_diff())
             env.step(8 - i)
         # env.step([1, 1])
         # for _ in range(20):
