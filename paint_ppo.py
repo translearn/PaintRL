@@ -137,7 +137,7 @@ def main(algorithm, config):
         experiment_config['paint']['config']['num_workers'] = 2
         args.run = experiment_config['paint']['run']
         args.env = experiment_config['paint']['env']
-        args.steps = 200
+        args.steps = 300
         experiment_config['paint']['config']['env_config'] = _make_env_config(is_train=False)
         args.config = experiment_config['paint']['config']
         args.out = None
@@ -162,7 +162,7 @@ if __name__ == '__main__':
         'vf_share_layers': False,
         'batch_mode': 'truncate_episodes',
         'observation_filter': 'NoFilter',
-        'vf_clip_param': 100.0,
+        'vf_clip_param': 125.0,
 
         'sample_batch_size': 100,
         'train_batch_size': 3000,

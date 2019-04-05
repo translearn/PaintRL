@@ -9,8 +9,8 @@ if __name__ == '__main__':
         #     'use_lstm': False,
         # },
         'num_atoms': 1,
-        'v_min': -100.0,
-        'v_max': 100.0,
+        'v_min': -120.0,
+        'v_max': 120.0,
         'dueling': True,
         'double_q': True,
         'hiddens': [256, 128],
@@ -21,8 +21,8 @@ if __name__ == '__main__':
         'parameter_noise': False,
         'batch_mode': 'truncate_episodes',
 
-        'buffer_size': 200000,
-        'prioritized_replay': True,
+        'buffer_size': 20000,
+        'prioritized_replay': False,
         'compress_observations': False,
 
         'learning_starts': 1000,
