@@ -177,6 +177,7 @@ class Robot:
         self.off_part_penalty = 0
         self._last_turning_angle = 0
         self.angle_diff = 0
+        self._terminate = False
 
     def _reset_termination_variables(self):
         self._terminate = False
@@ -249,7 +250,7 @@ class Robot:
             return
         self._terminate_counter += 1
         self._last_on_part = False
-        if self._terminate_counter > Robot.NOT_ON_PART_TERMINATE_STEPS:
+        if self._terminate_counter > self.NOT_ON_PART_TERMINATE_STEPS:
             self._terminate = True
 
     def _get_actions(self, part_id, delta_axis1, delta_axis2):
@@ -258,11 +259,10 @@ class Robot:
         self._set_joint_pose(self._default_pos)
         act = []
         poses = {}
-        delta1 = delta_axis1 / Robot.PAINT_PER_ACTION
-        delta2 = delta_axis2 / Robot.PAINT_PER_ACTION
+        delta1 = delta_axis1 / self.PAINT_PER_ACTION
+        delta2 = delta_axis2 / self.PAINT_PER_ACTION
         # target_len = math.sqrt(delta1 ** 2 + delta2 ** 2)
-        current_on_part_counter = self._terminate_counter
-        for i in range(Robot.PAINT_PER_ACTION):
+        for i in range(self.PAINT_PER_ACTION):
             pos, orn_norm = p.get_guided_point(part_id, current_pose, current_orn_norm, delta1, delta2)
             # pos, orn_norm = _regularize_pose_orn(current_pose, current_orn_norm, pos, orn_norm, target_len)
             pos, orn = get_pose_orn(pos, orn_norm)
@@ -280,10 +280,6 @@ class Robot:
             poses[i] = [pos, orn]
             current_pose, current_orn_norm = pos, orn_norm
         self._set_joint_pose(joint_pose)
-        if self._terminate_counter - current_on_part_counter >= Robot.PAINT_PER_ACTION:
-            self.off_part_penalty = 1
-        else:
-            self.off_part_penalty = 0
         return act, poses
 
     def _set_joint_pose(self, joint_angles):
@@ -305,7 +301,7 @@ class Robot:
     def _check_in_position(self, pos):
         diff = [b - a for a, b in zip(pos, self._pose)]
         norm_diff = np.linalg.norm(diff)
-        return True if norm_diff < Robot.IN_POSE_TOLERANCE else False
+        return True if norm_diff < self.IN_POSE_TOLERANCE else False
 
     def _set_turning_angle(self, delta_axis1, delta_axis2):
         if delta_axis1 != 0:
@@ -347,9 +343,10 @@ class Robot:
                 action[i] = _clip_by_value(a)
                 # raise ValueError('Action {} out of range!'.format(action))
         action = direction_normalize(action)
-        delta_axis1 = action[0] * Robot.DELTA_X
-        delta_axis2 = action[1] * Robot.DELTA_Y
+        delta_axis1 = action[0] * self.DELTA_X
+        delta_axis2 = action[1] * self.DELTA_Y
         self._set_turning_angle(delta_axis1, delta_axis2)
+        current_on_part_counter = self._terminate_counter
         act, poses = self._get_actions(part_id, delta_axis1, delta_axis2)
         possible_pixels = []
         succeeded_counter = 0
@@ -372,7 +369,13 @@ class Robot:
             # self._draw_tcp_orn()
         possible_pixels = list(set(possible_pixels))
         success_rate = succeeded_counter / len(possible_pixels) if possible_pixels else 0
-        return success_rate
+        if self._terminate_counter - current_on_part_counter >= self.PAINT_PER_ACTION and len(possible_pixels) == 0:
+            self.off_part_penalty = 1
+            # directly terminate the process to reduce the status space
+            self._terminate = True
+        else:
+            self.off_part_penalty = 0
+        return success_rate, succeeded_counter
 
 
 if __name__ == '__main__':

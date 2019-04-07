@@ -367,11 +367,11 @@ class RGBColorHandler(ColorHandler):
     def change_pixel(self, color, i, j):
         texel = self._part.get_texel(i, j)
         if self.is_changed(texel, color):
-            return False
+            return 0
         self._part.texture_pixels[texel] = color[0]
         self._part.texture_pixels[texel + 1] = color[1]
         self._part.texture_pixels[texel + 2] = color[2]
-        return True
+        return 1
 
 
 class HSIColorHandler(ColorHandler):
@@ -389,11 +389,11 @@ class HSIColorHandler(ColorHandler):
     def change_pixel(self, color, i, j):
         texel = self._part.get_texel(i, j)
         if self.is_changed(texel, color):
-            return False
+            return 0
         self._part.texture_pixels[texel] -= 5
         self._part.texture_pixels[texel + 1] -= 5
         self._part.texture_pixels[texel + 2] -= 5
-        return True
+        return 5 / 255
 
 
 class Part:
@@ -477,7 +477,7 @@ class Part:
         nearest_vertex = self.vertices_kd_tree[side].query(point, k=1)[1]
         bary = self._get_closest_bary(point, nearest_vertex, side)
         if bary:
-            pose = bary.get_point_along_normal(point, Part.HOOK_DISTANCE_TO_PART)
+            pose = bary.get_point_along_normal(point, self.HOOK_DISTANCE_TO_PART)
             orn = [-i for i in bary.get_normal()]
             # bary.add_debug_info()
             # bary.draw_face_normal()
@@ -494,10 +494,8 @@ class Part:
         succeed_counter = 0
         for index in nearest_vertices:
             i, j = self.profile[side][index]
-            changed = self._color_handler.change_pixel(color, i, j)
+            succeed_counter += self._color_handler.change_pixel(color, i, j)
             affected_pixels.append((i, j))
-            if changed:
-                succeed_counter += 1
         changeTexture(self.texture_id, self.texture_pixels, self.texture_width, self.texture_height)
         affected_pixels = list(set(affected_pixels))
         valid_pixels = [pixel for pixel in affected_pixels if pixel not in self._last_painted_pixels]
@@ -510,9 +508,10 @@ class Part:
         if self._render:
             for side in self.profile:
                 target_pixels = [i for i in target_pixels if i not in self.profile[side]]
-            irr_color = _get_color(Part.IRRELEVANT_COLOR)
-            front_color = _get_color(Part.FRONT_COLOR)
-            back_color = _get_color(Part.BACK_COLOR)
+            irr_color = _get_color(self.IRRELEVANT_COLOR)
+            self.FRONT_COLOR = (0.75, 0.75, 0.75) if self._color_mode == 'RGB' else (1, 1, 1)
+            front_color = _get_color(self.FRONT_COLOR)
+            back_color = _get_color(self.BACK_COLOR)
             for point in target_pixels:
                 self.color_setter.change_pixel(irr_color, *point)
             for point in self.profile[Side.back]:
@@ -538,7 +537,7 @@ class Part:
                 side_label[bary.get_side()] = True
             for side, label in side_label.items():
                 if not label:
-                    point_list[side][key] = Part.IRRELEVANT_POSE
+                    point_list[side][key] = self.IRRELEVANT_POSE
         for side in self.profile:
             self.vertices_kd_tree[side] = cKDTree(point_list[side])
             self.pixel_kd_tree[side] = cKDTree(self.pixel_positions[side])
@@ -595,7 +594,7 @@ class Part:
                 if side == bary.get_side():
                     center_points.append(bary.center_point)
                 else:
-                    center_points.append(Part.IRRELEVANT_POSE)
+                    center_points.append(self.IRRELEVANT_POSE)
             point_kd_tree = cKDTree(center_points)
             for i, bary in enumerate(self.bary_list):
                 if side == bary.get_side():
@@ -686,7 +685,7 @@ class Part:
         axis_2_max, axis_2_min = max(axis_2_value), min(axis_2_value)
         for bary in self.bary_list:
             if bary.is_in_same_side(side) and bary.area_valid:
-                center_point, hook_point = bary.get_face_guide_point(Part.HOOK_DISTANCE_TO_PART)
+                center_point, hook_point = bary.get_face_guide_point(self.HOOK_DISTANCE_TO_PART)
                 grid_index = self._get_grid_index_2(center_point[self.principle_axes[1]])
                 grid_range = self.grid_dict[side][grid_index]
                 if center_point[self.principle_axes[0]] - grid_range[0] >= MIN_PAINT_DIAMETER and \
@@ -756,11 +755,11 @@ class Part:
 
     def _get_grid_index_2(self, val_axis_2):
         axis2_relative = (val_axis_2 - self.ranges[1][0]) / (self.ranges[1][1] - self.ranges[1][0])
-        grid_index = int(axis2_relative * Part.GRID_GRANULARITY)
+        grid_index = int(axis2_relative * self.GRID_GRANULARITY)
         if grid_index < 0:
             return 0
-        elif grid_index > Part.GRID_GRANULARITY - 1:
-            return Part.GRID_GRANULARITY - 1
+        elif grid_index > self.GRID_GRANULARITY - 1:
+            return self.GRID_GRANULARITY - 1
         return grid_index
 
     def _get_delta_1(self, point, side, delta_axis1, delta_axis2):
@@ -806,7 +805,7 @@ class Part:
         """
         # self.get_texture_image().show()
         color = _get_color(color)
-        sign0, sign1 = Part.MODE_SIGN[mode]
+        sign0, sign1 = self.MODE_SIGN[mode]
         targets = sorted(self.profile[side], key=lambda p: sign0 * p[0] + sign1 * p[1])
         quantity = int(len(targets) * percent / 100)
         i = 0
@@ -843,12 +842,12 @@ class Part:
             grid_dict = {}
             axis_1, axis_2 = self.principle_axes[0], self.principle_axes[1]
             sorted_list = sorted(self.vertices_kd_tree[side].data, key=lambda v: v[axis_2])
-            sorted_list = [item for item in sorted_list if item[0] != Part.IRRELEVANT_POSE[0]]
+            sorted_list = [item for item in sorted_list if item[0] != self.IRRELEVANT_POSE[0]]
             traverse_index = 0
             axis2_range = self.ranges[1][1] - self.ranges[1][0]
-            step_size = axis2_range / Part.GRID_GRANULARITY
+            step_size = axis2_range / self.GRID_GRANULARITY
             left_bound = right_bound = sorted_list[0]
-            for i in range(Part.GRID_GRANULARITY):
+            for i in range(self.GRID_GRANULARITY):
                 current_traverse_index = traverse_index
                 current_step_max = self.ranges[1][0] + (i + 1) * step_size
                 for index in range(current_traverse_index, len(sorted_list)):
@@ -895,8 +894,8 @@ class Part:
         return _clip_to_01_np(axis1_in_range), _clip_to_01_np(axis2_in_range)
 
     def _debug_grid(self, pose, side):
-        step_size = (self.ranges[1][1] - self.ranges[1][0]) / Part.GRID_GRANULARITY
-        for i in range(Part.GRID_GRANULARITY):
+        step_size = (self.ranges[1][1] - self.ranges[1][0]) / self.GRID_GRANULARITY
+        for i in range(self.GRID_GRANULARITY):
             addUserDebugLine((pose[0], self.grid_dict[side][i][0], self.ranges[1][0] + (i + 1) * step_size),
                              (pose[0], self.grid_dict[side][i][0], self.ranges[1][0] + i * step_size), (1, 0, 0))
             addUserDebugLine((pose[0], self.grid_dict[side][i][1], self.ranges[1][0] + (i + 1) * step_size),
@@ -961,7 +960,7 @@ class GridObservation(Observation):
 
     def __init__(self, part, h_grid_granularity):
         Observation.__init__(self, part)
-        self._v_granularity = Part.GRID_GRANULARITY
+        self._v_granularity = self._part.GRID_GRANULARITY
         self._h_granularity = h_grid_granularity
         self._setup_grid_pixels()
 

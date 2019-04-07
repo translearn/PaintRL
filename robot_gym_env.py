@@ -17,7 +17,7 @@ from timeit import default_timer as timer
 
 Part_Dict = {
     0: ['door_test.urdf', 9148],
-    1: ['square.urdf', 14400],
+    1: ['square.urdf', 14350],
     2: ['door_lf.urdf', 0],
     3: ['door_lr.urdf', 0],
     4: ['door_rf.urdf', 0],
@@ -104,7 +104,7 @@ class StepManager:
 
 class RobotGymEnv(gym.Env):
     Current_Part_No = 1
-    Expected_Episode_Length = 300
+    Expected_Episode_Length = 240
 
     RENDER_HEIGHT = 720
     RENDER_WIDTH = 960
@@ -127,7 +127,8 @@ class RobotGymEnv(gym.Env):
     OBS_GRAD = 4
 
     START_POINT_MODE = 'fixed'
-    TURNING_PENALTY = True
+    TURNING_PENALTY = False
+    OVERLAP_PENALTY = False
     COLOR_MODE = 'RGB'
 
     if ACTION_MODE == 'continuous':
@@ -140,24 +141,27 @@ class RobotGymEnv(gym.Env):
     if OBS_MODE == 'section':
         observation_space = spaces.Box(low=0.0, high=1.0, shape=(OBS_GRAD + 2,), dtype=np.float32)
     elif OBS_MODE == 'grid':
-        observation_space = spaces.Box(low=0.0, high=1.0, shape=(OBS_GRAD * OBS_GRAD + 2,), dtype=np.float32)
+        observation_space = spaces.Box(low=0.0, high=1.0, shape=(OBS_GRAD ** 2 + 2,), dtype=np.float32)
     else:
         observation_space = spaces.Box(low=0.0, high=1.0, shape=(2,), dtype=np.float32)
 
     # class methods below does not support in ray distributed framework
     @classmethod
-    def change_obs_mode(cls, mode='section'):
+    def change_obs_mode(cls, mode='section', grad=5):
         """
         change the observation mode
         :param mode: 'section', 'grid', 'simple'
+        :param grad: grad of the observation
         :return:
         """
         cls.OBS_MODE = mode
         if mode == 'section':
             cls.observation_space = spaces.Box(low=0.0, high=1.0, shape=(18 + 2,), dtype=np.float32)
+        elif mode == 'grid':
+            cls.observation_space = spaces.Box(low=0.0, high=1.0, shape=(cls.OBS_GRAD ** 2 + 2,), dtype=np.float32)
         else:
-            cls.observation_space = spaces.Box(low=0.0, high=1.0, shape=(cls.OBS_GRAD * cls.OBS_GRAD + 2,),
-                                               dtype=np.float32)
+            cls.observation_space = spaces.Box(low=0.0, high=1.0, shape=(2,), dtype=np.float32)
+        cls.OBS_GRAD = grad
 
     @classmethod
     def change_action_mode(cls, shape=2, mode='continuous', discrete_granularity=20):
@@ -202,15 +206,15 @@ class RobotGymEnv(gym.Env):
 
     def __init__(self, urdf_root, with_robot=True, renders=False, render_video=False,
                  rollout=False):
-        self._part_name = Part_Dict[RobotGymEnv.Current_Part_No][0]
-        self._max_possible_point = Part_Dict[RobotGymEnv.Current_Part_No][1]
+        self._part_name = Part_Dict[self.Current_Part_No][0]
+        self._max_possible_point = Part_Dict[self.Current_Part_No][1]
         self._with_robot = with_robot
         self._renders = renders
         self._render_video = render_video
         self._urdf_root = urdf_root
         self._rollout = rollout
 
-        self._last_status = 0
+        # self._last_status = 0
         self._step_counter = 0
         self._total_reward = 0
         self._total_return = 0
@@ -247,7 +251,7 @@ class RobotGymEnv(gym.Env):
     def _load_environment(self):
         if self._renders:
             p.loadURDF('plane.urdf', (0, 0, 0), useFixedBase=True)
-        self._part_id = p.load_part(self._renders, RobotGymEnv.OBS_MODE, self.OBS_GRAD, self.COLOR_MODE,
+        self._part_id = p.load_part(self._renders, self.OBS_MODE, self.OBS_GRAD, self.COLOR_MODE,
                                     os.path.join(self._urdf_root, 'urdf', 'painting', self._part_name),
                                     (-0.4, -0.6, 0.25), useFixedBase=True, flags=p.URDF_ENABLE_SLEEPING)
         self._start_points = p.get_start_points(self._part_id, p.Side.front, mode=self.START_POINT_MODE)
@@ -261,19 +265,19 @@ class RobotGymEnv(gym.Env):
         # cut the long episode to save sampling time
         self._step_counter += 1
         # self._max_possible_point = p.get_job_limit(self._part_id, self._paint_side)
-        finished = False if self._max_possible_point > self._last_status else True
+        finished = False if self._max_possible_point > self._total_reward * 100 else True
         robot_termination = self.robot.termination_request()
 
         avg_reward = self._total_reward / self._step_counter
         # switch the mode of termination
-        expected_avg_reward = self._max_possible_point / (RobotGymEnv.Expected_Episode_Length * 100)
+        expected_avg_reward = self._max_possible_point / (self.Expected_Episode_Length * 100)
         if avg_reward < expected_avg_reward and self.TERMINATION_MODE != 'late':
             if self.TERMINATION_MODE == 'early':
                 return True
             # Hybrid mode
             elif self._total_reward < self.SWITCH_THRESHOLD * self._max_possible_point / 100:
                 return True
-        return finished or robot_termination or self._step_counter > RobotGymEnv.EPISODE_MAX_LENGTH - 1
+        return finished or robot_termination or self._step_counter > self.EPISODE_MAX_LENGTH - 1
 
     def _augmented_observation(self):
         pose, _ = self.robot.get_observation()
@@ -283,21 +287,23 @@ class RobotGymEnv(gym.Env):
         status = p.get_partial_observation(self._part_id, self._paint_side, self._paint_color, pose)
         return list(status) + list(normalized_pose)
 
-    def _reward(self):
-        current_status = p.get_job_status(self._part_id, self._paint_side, self._paint_color)
-        reward = current_status - self._last_status
+    def _reward(self, succeeded_counter):
+        # current_status = p.get_job_status(self._part_id, self._paint_side, self._paint_color)
+        # reward = current_status - self._last_status
         # Normalize the reward
-        reward = reward / 100
-        self._last_status = current_status
+        reward = succeeded_counter / 100
+        # self._last_status = current_status
         self._total_reward += reward
         return reward
 
     def _penalty(self, paint_succeed_rate):
         time_step_penalty = 0.1
         off_part_penalty = self.robot.off_part_penalty
-        overlap_penalty = 0.1 * (1 - paint_succeed_rate)
-        # overlap_penalty = 1 - paint_succeed_rate
-        total_penalty = time_step_penalty + off_part_penalty + overlap_penalty
+        total_penalty = time_step_penalty + off_part_penalty
+        if self.OVERLAP_PENALTY:
+            overlap_penalty = 0.1 * (1 - paint_succeed_rate)
+            # overlap_penalty = 1 - paint_succeed_rate
+            total_penalty += overlap_penalty
         if self.TURNING_PENALTY:
             turning_penalty = 0.2 * (self.robot.get_angle_diff() / math.pi)
             total_penalty += turning_penalty
@@ -312,8 +318,9 @@ class RobotGymEnv(gym.Env):
 
     def step(self, action):
         action = self._preprocess_action(action)
-        paint_succeed_rate = self.robot.apply_action(action, self._part_id, self._paint_color, self._paint_side)
-        reward = self._reward()
+        paint_succeed_rate, succeeded_counter = self.robot.apply_action(action, self._part_id,
+                                                                        self._paint_color, self._paint_side)
+        reward = self._reward(succeeded_counter)
         penalty = self._penalty(paint_succeed_rate)
         actual_reward = reward - penalty
         done = self._termination()
@@ -341,7 +348,7 @@ class RobotGymEnv(gym.Env):
         self._total_return = 0
         self._total_reward = 0
         self.robot.reset(start_point)
-        self._last_status = p.get_job_status(self._part_id, self._paint_side, self._paint_color)
+        # self._last_status = p.get_job_status(self._part_id, self._paint_side, self._paint_color)
         return self._augmented_observation()
 
     def render(self, mode='human'):
@@ -359,7 +366,7 @@ class RobotGymEnv(gym.Env):
                            0.0, 0.0, -1.0000200271606445, -1.0,
                            0.0, 0.0, -0.02000020071864128, 0.0)
 
-            _, _, px, _, _ = p.getCameraImage(width=RobotGymEnv.RENDER_WIDTH, height=RobotGymEnv.RENDER_HEIGHT,
+            _, _, px, _, _ = p.getCameraImage(width=self.RENDER_WIDTH, height=self.RENDER_HEIGHT,
                                               viewMatrix=view_matrix, projectionMatrix=proj_matrix,
                                               renderer=p.ER_BULLET_HARDWARE_OPENGL)
             rgb_array = np.array(px)
