@@ -5,17 +5,18 @@ from random import uniform
 import obj_surface_process.bullet_paint_wrapper as p
 
 
-def _get_target_projection_params(projection_distance):
+def _get_target_projection_params(projection_distance, point_density):
     ratio = projection_distance / 0.5
     radius = 0.25 * ratio
-    resolution = 0.02 * ratio * 1.414  # halved the resolution to speed up the process
+    resolution = 1.8 / math.sqrt(point_density)
+    # resolution = 0.02 * ratio * 1.414  # halved the resolution to speed up the process
     target_ray_plane = projection_distance
     return radius, resolution, target_ray_plane
 
 
-def _get_uniformed_plain():
+def _get_uniformed_plain(point_density):
     paint_plain = []
-    radius, resolution, target_ray_plane = _get_target_projection_params(0.2)
+    radius, resolution, target_ray_plane = _get_target_projection_params(0.2, point_density)
     i = j = -radius
     while i <= radius:
         while j <= radius:
@@ -28,27 +29,35 @@ def _get_uniformed_plain():
     return paint_plain
 
 
-def _get_beta_plain(beta):
+def _get_beta_plain(beta, point_density):
+    """
+    beta value from paper Andulkar et al. 'Novel integrated offline trajectory generation approach
+     for robot assisted spray painting operation'
+    :param beta:
+    :param point_density: pixel density distribution of the part,
+    :return:
+    """
     paint_plain = []
     distribution = {}
-    radius, resolution, target_ray_plane = _get_target_projection_params(0.2)
+    radius, resolution, target_ray_plane = _get_target_projection_params(0.2, point_density)
+
     circles = math.ceil(radius / resolution)
     total_points = 0
     for i in range(1, circles + 1):
-        num_points = beta * (1 - (i / circles) ** 2) ** (beta - 1)
+        num_points = (1 - (i / circles) ** 2) ** (beta - 1)
         distribution[i] = num_points
         total_points += num_points
     # TODO: here the expected points should be inferred automatically
-    expected_points = 242
+    expected_points = 450
     for i in distribution:
         distribution[i] = round(expected_points * distribution[i] / total_points)
     for i in range(1, circles + 1):
-        lower_radius = (i - 0.5) * resolution
-        upper_radius = (i + 0.5) * resolution
+        lower_radius = (i - 1) * resolution
+        upper_radius = i * resolution
         angle_resolution = 2 * math.pi / distribution[i] if distribution[i] else 0
         for j in range(distribution[i]):
             r = uniform(lower_radius, upper_radius)
-            # r = i * resolution
+            # r = i * resolution * 0.707
             theta = j * angle_resolution
             coordinate = pol2cart(r, theta)
             paint_plain.append((*coordinate, target_ray_plane))
@@ -58,10 +67,22 @@ def _get_beta_plain(beta):
 def debug_plain(paint_plain):
     for point in paint_plain:
         point_positive = list(point)
-        point_positive[2] += 0.02
+        point_positive[2] = 0.1
         point_negative = list(point)
-        point_negative[2] -= 0.02
+        point_negative[2] = -0.1
         p.addUserDebugLine(point_positive, point_negative, (1, 0, 0), lineWidth=2.5)
+
+
+def debug_pixel():
+    r = 0.1
+    resolution = 0.0083333
+    x = -r
+    while x < r:
+        y = -r
+        while y < r:
+            p.addUserDebugLine((x, y, -0.1), (x, y, 0.1), (0, 1, 0), lineWidth=2.5)
+            y += resolution
+        x += resolution
 
 
 def get_pose_orn(pose, orn):
@@ -147,7 +168,7 @@ class Robot:
 
     BETA = 2
 
-    def __init__(self, step_manager, urdf_path, pos=(0, 0, 0), orn=(0, 0, 0, 1), with_robot=True, color_mode='RGB'):
+    def __init__(self, step_manager, urdf_path, pos=(0, 0, 0), orn=(0, 0, 0, 1), with_robot=True):
         self.robot_id = 0
 
         self._motor_count = 7
@@ -162,7 +183,6 @@ class Robot:
         self._motor_upper_limits = []
         self._max_velocities = []
         self._with_robot = with_robot
-        self._color_mode = color_mode
         # max velocity, etc. setup
         if self._with_robot:
             self.robot_id = p.loadURDF(urdf_path, pos, orn, useFixedBase=True, flags=p.URDF_USE_SELF_COLLISION)
@@ -172,12 +192,12 @@ class Robot:
         self._step_manager = step_manager
         self._reset_termination_variables()
 
-        self._set_up_paint_beam_plain()
-
         self.off_part_penalty = 0
         self._last_turning_angle = 0
         self.angle_diff = 0
         self._terminate = False
+        self._paint_plain = None
+        self._plain_point_count = 0
 
     def _reset_termination_variables(self):
         self._terminate = False
@@ -209,11 +229,11 @@ class Robot:
         else:
             self._pose, self._orn = pos, orn
 
-    def _set_up_paint_beam_plain(self):
-        if self._color_mode == 'RGB':
-            self._paint_plain = _get_uniformed_plain()
+    def set_up_paint_params(self, color_mode, density):
+        if color_mode == 'RGB':
+            self._paint_plain = _get_uniformed_plain(density)
         else:
-            self._paint_plain = _get_beta_plain(self.BETA)
+            self._paint_plain = _get_beta_plain(self.BETA, density)
         self._plain_point_count = len(self._paint_plain)
 
     def _generate_paint_beams(self, show_debug_lines=False):
@@ -224,6 +244,12 @@ class Robot:
             for point in self._paint_plain:
                 p.addUserDebugLine(self._pose, point, (0, 1, 0))
         return ray_origin, ray_dst
+
+    def _generate_paint_beam(self, show_debug_lines=False):
+        ray_dst = _get_tcp_point_in_world(self._pose, self._orn, (0, 0, 0.2))[0]
+        if show_debug_lines:
+            self._draw_tcp_orn()
+        return self._pose, ray_dst
 
     def _get_tcp_orn_norm(self):
         p_along_tcp, _ = p.multiplyTransforms(self._pose, self._orn, (0, 0, 1), (0, 0, 0, 1))
@@ -242,6 +268,13 @@ class Robot:
         points = [item[3] for item in results if item[0] != -1]
         succeed_data = p.paint(part_id, points, color, paint_side)
         return succeed_data
+
+    def _fast_paint(self, part_id, color, paint_side, show_debug_lines=False):
+        radius = 0.051
+        point = _get_tcp_point_in_world(self._pose, self._orn, (0, 0, 0.1))[0]
+        if show_debug_lines:
+            self._draw_tcp_orn()
+        return p.fast_paint(part_id, point, radius, color, paint_side)
 
     def _count_not_on_part(self):
         # check consecutive not on part
@@ -363,13 +396,14 @@ class Robot:
             if not self._check_in_position(pos_orn[0]):
                 # Robot in singularity point or given point is out of working space
                 print('not in pose!')
-            paint_succeed_data = self._paint(part_id, color, paint_side)
+            # paint_succeed_data = self._paint(part_id, color, paint_side)
+            paint_succeed_data = self._fast_paint(part_id, color, paint_side)
             possible_pixels.extend(paint_succeed_data[0])
             succeeded_counter += paint_succeed_data[1]
             # self._draw_tcp_orn()
-        possible_pixels = list(set(possible_pixels))
-        success_rate = succeeded_counter / len(possible_pixels) if possible_pixels else 0
-        if self._terminate_counter - current_on_part_counter >= self.PAINT_PER_ACTION and len(possible_pixels) == 0:
+        pixel_counter = len(set(possible_pixels))
+        success_rate = succeeded_counter / pixel_counter if possible_pixels else 0
+        if self._terminate_counter - current_on_part_counter >= self.PAINT_PER_ACTION and pixel_counter == 0:
             self.off_part_penalty = 1
             # directly terminate the process to reduce the status space
             self._terminate = True
@@ -388,8 +422,9 @@ if __name__ == '__main__':
     import pybullet_data
     p.setAdditionalSearchPath(pybullet_data.getDataPath())
     p.loadURDF('plane.urdf', (0, 0, 0), useFixedBase=True)
-    plain = _get_beta_plain(2)
+    plain = _get_beta_plain(2, 14431)
     debug_plain(plain)
+    debug_pixel()
     print(1)
     # current_dir = os.path.dirname(os.path.realpath(__file__))
     # franka_urdf_path = os.path.join(current_dir, 'urdf', 'franka_description', 'robots', 'panda_arm.urdf')

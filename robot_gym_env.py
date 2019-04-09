@@ -109,7 +109,7 @@ class RobotGymEnv(gym.Env):
     RENDER_HEIGHT = 720
     RENDER_WIDTH = 960
 
-    EPISODE_MAX_LENGTH = 800
+    EPISODE_MAX_LENGTH = 240
 
     metadata = {'render.modes': ['human', 'rgb_array'], 'video.frames_per_second': 30}
 
@@ -120,14 +120,14 @@ class RobotGymEnv(gym.Env):
     ACTION_MODE = 'discrete'
     DISCRETE_GRANULARITY = 4
 
-    TERMINATION_MODE = 'early'
+    TERMINATION_MODE = 'late'
     SWITCH_THRESHOLD = 0.9
 
     OBS_MODE = 'section'
     OBS_GRAD = 4
 
     START_POINT_MODE = 'fixed'
-    TURNING_PENALTY = False
+    TURNING_PENALTY = True
     OVERLAP_PENALTY = False
     COLOR_MODE = 'RGB'
 
@@ -204,6 +204,10 @@ class RobotGymEnv(gym.Env):
     def switch_turning_penalty(cls, on_off):
         cls.TURNING_PENALTY = on_off
 
+    @classmethod
+    def switch_overlapping_penalty(cls, on_off):
+        cls.OVERLAP_PENALTY = on_off
+
     def __init__(self, urdf_root, with_robot=True, renders=False, render_video=False,
                  rollout=False):
         self._part_name = Part_Dict[self.Current_Part_No][0]
@@ -254,10 +258,11 @@ class RobotGymEnv(gym.Env):
         self._part_id = p.load_part(self._renders, self.OBS_MODE, self.OBS_GRAD, self.COLOR_MODE,
                                     os.path.join(self._urdf_root, 'urdf', 'painting', self._part_name),
                                     (-0.4, -0.6, 0.25), useFixedBase=True, flags=p.URDF_ENABLE_SLEEPING)
-        self._start_points = p.get_start_points(self._part_id, p.Side.front, mode=self.START_POINT_MODE)
+        self._start_points = p.get_start_points(self._part_id, self._paint_side, mode=self.START_POINT_MODE)
         self.robot = Robot(self._step_manager, 'kuka_iiwa/model_free_base.urdf', pos=(0.2, -0.2, 0),
-                           orn=p.getQuaternionFromEuler((0, 0, math.pi*3/2)), with_robot=self._with_robot,
-                           color_mode=self.COLOR_MODE)
+                           orn=p.getQuaternionFromEuler((0, 0, math.pi*3/2)), with_robot=self._with_robot)
+        density = p.get_side_density(self._part_id, self._paint_side)
+        self.robot.set_up_paint_params(self.COLOR_MODE, density)
         p.setGravity(0, 0, -10)
         self.reset()
 
@@ -297,9 +302,11 @@ class RobotGymEnv(gym.Env):
         return reward
 
     def _penalty(self, paint_succeed_rate):
-        time_step_penalty = 0.1
-        off_part_penalty = self.robot.off_part_penalty
-        total_penalty = time_step_penalty + off_part_penalty
+        # time_step_penalty = 0.1
+        time_step_penalty = 0.2
+        # off_part_penalty = self.robot.off_part_penalty
+        # total_penalty = time_step_penalty + off_part_penalty
+        total_penalty = time_step_penalty
         if self.OVERLAP_PENALTY:
             overlap_penalty = 0.1 * (1 - paint_succeed_rate)
             # overlap_penalty = 1 - paint_succeed_rate

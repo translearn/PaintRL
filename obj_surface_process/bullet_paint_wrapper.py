@@ -10,7 +10,7 @@ from pybullet import *
 import xml.etree.ElementTree as Et
 import numpy as np
 from PIL import Image
-from scipy.spatial import cKDTree, ConvexHull
+from scipy.spatial import cKDTree, ConvexHull, minkowski_distance
 
 _urdf_cache = {}
 AXES = [(1, 0, 0), (0, 1, 0), (0, 0, 1)]
@@ -354,14 +354,14 @@ class ColorHandler:
     def change_pixel(self, color, i, j):
         raise NotImplementedError
 
+    def change_pixels(self, side, color, center, points):
+        raise NotImplementedError
+
 
 class RGBColorHandler(ColorHandler):
 
     def is_changed(self, texel, color):
         # compare only the first channel to speed up the process
-        # TODO: change back for real application
-        # return self.texture_pixels[texel] == color[0] and self.texture_pixels[texel + 1] == color[1] \
-        #        and self.texture_pixels[texel + 2] == color[2]
         return self._part.texture_pixels[texel] == color[0]
 
     def change_pixel(self, color, i, j):
@@ -373,6 +373,16 @@ class RGBColorHandler(ColorHandler):
         self._part.texture_pixels[texel + 2] = color[2]
         return 1
 
+    def change_pixels(self, side, color, center, points):
+        affected_pixels = []
+        succeed_counter = 0
+        for index in points:
+            i, j = self._part.profile[side][index]
+            succeed_counter += self.change_pixel(color, i, j)
+            affected_pixels.append((i, j))
+        affected_pixels = list(set(affected_pixels))
+        return succeed_counter, affected_pixels
+
 
 class HSIColorHandler(ColorHandler):
     """
@@ -380,20 +390,42 @@ class HSIColorHandler(ColorHandler):
     RED_NULL = (0, 0, 0)
     RED_FULL = (255, 0, 0)
     """
+    TARGET_MAX = int(255 / 10)
+    BETA = 2
 
     def is_changed(self, texel, color):
-        # TODO: change this for real application
-        # return self._part.texture_pixels[texel] >= 255
-        return self._part.texture_pixels[texel] <= 0
+        return self._part.texture_pixels[texel] <= color
 
     def change_pixel(self, color, i, j):
+        """
+        Here the color is used to give the quantity of changes
+        :param color:
+        :param i:
+        :param j:
+        :return:
+        """
         texel = self._part.get_texel(i, j)
         if self.is_changed(texel, color):
-            return 0
-        self._part.texture_pixels[texel] -= 5
-        self._part.texture_pixels[texel + 1] -= 5
-        self._part.texture_pixels[texel + 2] -= 5
-        return 5 / 255
+            color = max(self._part.texture_pixels[texel], 0)
+        self._part.texture_pixels[texel] -= color
+        self._part.texture_pixels[texel + 1] -= color
+        self._part.texture_pixels[texel + 2] -= color
+        return color / 255
+
+    def change_pixels(self, side, color, center, points):
+        x = [self._part.pixel_kd_tree[side].data[i] for i in points]
+        y = [center] * len(x)
+        distances = minkowski_distance(x, y)
+        r = distances.max()
+        affected_pixels = []
+        succeed_counter = 0
+        for counter, index in enumerate(points):
+            i, j = self._part.profile[side][index]
+            change_time = int(self.TARGET_MAX * (1 - (distances[counter] / r) ** 2) ** (self.BETA - 1)) + 1
+            succeed_counter += self.change_pixel(change_time, i, j)
+            affected_pixels.append((i, j))
+        affected_pixels = list(set(affected_pixels))
+        return succeed_counter, affected_pixels
 
 
 class Part:
@@ -498,6 +530,15 @@ class Part:
             affected_pixels.append((i, j))
         changeTexture(self.texture_id, self.texture_pixels, self.texture_width, self.texture_height)
         affected_pixels = list(set(affected_pixels))
+        valid_pixels = [pixel for pixel in affected_pixels if pixel not in self._last_painted_pixels]
+        self._last_painted_pixels = affected_pixels
+        return valid_pixels, succeed_counter
+
+    def fast_paint(self, point, radius, color, side):
+        color = _get_color(color)
+        nearest_vertices = self.pixel_kd_tree[side].query_ball_point(point, radius)
+        succeed_counter, affected_pixels = self._color_handler.change_pixels(side, color, point, nearest_vertices)
+        changeTexture(self.texture_id, self.texture_pixels, self.texture_width, self.texture_height)
         valid_pixels = [pixel for pixel in affected_pixels if pixel not in self._last_painted_pixels]
         self._last_painted_pixels = affected_pixels
         return valid_pixels, succeed_counter
@@ -746,9 +787,16 @@ class Part:
         else:
             self._obs_handler = GridObservation(self, self._obs_grad)
         if self._color_mode == 'RGB':
-            self._color_handler = RGBColorHandler(self)
+            self._color_handler = self.color_setter
         else:
             self._color_handler = HSIColorHandler(self)
+
+    def get_density(self, side):
+        area_size = 0
+        step_size = (self.ranges[1][1] - self.ranges[1][0]) / self.GRID_GRANULARITY
+        for grid_size_x in self.grid_range[side].values():
+            area_size += step_size * grid_size_x
+        return len(self.profile[side]) / area_size
 
     def set_ranges_along_principle(self, ranges):
         self.ranges = ranges
@@ -1259,6 +1307,10 @@ def paint(urdf_id, points, color, side):
     return _urdf_cache[urdf_id].paint(points, color, side)
 
 
+def fast_paint(urdf_id, point, radius, color, side):
+    return _urdf_cache[urdf_id].fast_paint(point, radius, color, side)
+
+
 def get_job_status(urdf_id, side, color):
     return _urdf_cache[urdf_id].get_job_status(side, color)
 
@@ -1297,3 +1349,7 @@ def reset_part(urdf_id, side, color, percent, mode, with_start_point=False):
 
 def write_text_info(urdf_id, action, reward, penalty, total_return, step):
     _urdf_cache[urdf_id].write_text_info(action, reward, penalty, total_return, step)
+
+
+def get_side_density(urdf_id, paint_side):
+    return _urdf_cache[urdf_id].get_density(paint_side)
