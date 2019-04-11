@@ -102,18 +102,30 @@ class StepManager:
         self._video_recorder = None
 
 
-class RobotGymEnv(gym.Env):
-    Current_Part_No = 1
-    Expected_Episode_Length = 240
+def _handle_pos(pos):
+    if pos == 0:
+        return 0
+    elif pos == 1:
+        return 21
+    else:
+        return int(pos * 20) + 1
 
+
+def _get_discrete_obs(obs):
+    x, y = _handle_pos(obs[0]), _handle_pos(obs[1])
+    return (x + 1) * 22 + y
+
+
+class RobotGymEnv(gym.Env):
     RENDER_HEIGHT = 720
     RENDER_WIDTH = 960
-
-    EPISODE_MAX_LENGTH = 240
-
     metadata = {'render.modes': ['human', 'rgb_array'], 'video.frames_per_second': 30}
 
-    reward_range = (-1e4, 1e4)
+    Current_Part_No = 1
+    Expected_Episode_Length = 240
+    EPISODE_MAX_LENGTH = 240
+
+    reward_range = (-1e3, 1e3)
 
     # Adjust env by hand when using Ray!!!
     ACTION_SHAPE = 1
@@ -123,44 +135,48 @@ class RobotGymEnv(gym.Env):
     TERMINATION_MODE = 'late'
     SWITCH_THRESHOLD = 0.9
 
-    OBS_MODE = 'section'
-    OBS_GRAD = 4
+    OBS_MODE = 'grid'
+    OBS_GRAD = 5
 
     START_POINT_MODE = 'fixed'
-    TURNING_PENALTY = True
+    TURNING_PENALTY = False
     OVERLAP_PENALTY = False
     COLOR_MODE = 'RGB'
 
     if ACTION_MODE == 'continuous':
         if ACTION_SHAPE == 2:
-            action_space = spaces.Box(np.array((-1, -1)), np.array((1, 1)), dtype=np.float32)
+            action_space = spaces.Box(np.array((-1, -1)), np.array((1, 1)), dtype=np.float64)
         else:
-            action_space = spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)
+            action_space = spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float64)
     else:
         action_space = spaces.Discrete(DISCRETE_GRANULARITY)
     if OBS_MODE == 'section':
-        observation_space = spaces.Box(low=0.0, high=1.0, shape=(OBS_GRAD + 2,), dtype=np.float32)
+        observation_space = spaces.Box(low=0.0, high=1.0, shape=(OBS_GRAD + 2,), dtype=np.float64)
     elif OBS_MODE == 'grid':
-        observation_space = spaces.Box(low=0.0, high=1.0, shape=(OBS_GRAD ** 2 + 2,), dtype=np.float32)
+        observation_space = spaces.Box(low=0.0, high=1.0, shape=(OBS_GRAD ** 2 + 2,), dtype=np.float64)
+    elif OBS_MODE == 'simple':
+        observation_space = spaces.Box(low=0.0, high=1.0, shape=(2,), dtype=np.float64)
     else:
-        observation_space = spaces.Box(low=0.0, high=1.0, shape=(2,), dtype=np.float32)
+        observation_space = spaces.Box(low=0.0, high=1.0, shape=(OBS_GRAD + 1,), dtype=np.float64)
 
     # class methods below does not support in ray distributed framework
     @classmethod
     def change_obs_mode(cls, mode='section', grad=5):
         """
         change the observation mode
-        :param mode: 'section', 'grid', 'simple'
+        :param mode: 'section', 'grid', 'simple', 'discrete'
         :param grad: grad of the observation
         :return:
         """
         cls.OBS_MODE = mode
         if mode == 'section':
-            cls.observation_space = spaces.Box(low=0.0, high=1.0, shape=(18 + 2,), dtype=np.float32)
+            cls.observation_space = spaces.Box(low=0.0, high=1.0, shape=(18 + 2,), dtype=np.float64)
         elif mode == 'grid':
-            cls.observation_space = spaces.Box(low=0.0, high=1.0, shape=(cls.OBS_GRAD ** 2 + 2,), dtype=np.float32)
+            cls.observation_space = spaces.Box(low=0.0, high=1.0, shape=(cls.OBS_GRAD ** 2 + 2,), dtype=np.float64)
+        elif mode == 'simple':
+            cls.observation_space = spaces.Box(low=0.0, high=1.0, shape=(2,), dtype=np.float64)
         else:
-            cls.observation_space = spaces.Box(low=0.0, high=1.0, shape=(2,), dtype=np.float32)
+            cls.observation_space = spaces.Box(low=0.0, high=1.0, shape=(cls.OBS_GRAD + 1,), dtype=np.float64)
         cls.OBS_GRAD = grad
 
     @classmethod
@@ -169,9 +185,9 @@ class RobotGymEnv(gym.Env):
         cls.ACTION_MODE = mode
         if mode == 'continuous':
             if shape == 1:
-                cls.action_space = spaces.Box(np.array(-1,), np.array(-1,), dtype=np.float32)
+                cls.action_space = spaces.Box(np.array(-1,), np.array(-1,), dtype=np.float64)
             else:
-                cls.action_space = spaces.Box(np.array((-1, -1)), np.array((1, 1)), dtype=np.float32)
+                cls.action_space = spaces.Box(np.array((-1, -1)), np.array((1, 1)), dtype=np.float64)
         else:
             cls.action_space = spaces.Discrete(discrete_granularity)
 
@@ -286,10 +302,16 @@ class RobotGymEnv(gym.Env):
 
     def _augmented_observation(self):
         pose, _ = self.robot.get_observation()
-        normalized_pose = p.get_normalized_pose(self._part_id, self._paint_side, pose)
+        # TODO: radius is a property of the paint gun, should be refactored to a gun obj
+        normalized_pose = p.get_normalized_pose(self._part_id, self._paint_side, pose, radius=0.051)
         if self.OBS_MODE == 'simple':
             return list(normalized_pose)
         status = p.get_partial_observation(self._part_id, self._paint_side, self._paint_color, pose)
+        if self.OBS_MODE == 'discrete':
+            position = _get_discrete_obs(normalized_pose)
+            obs = list(status)
+            obs.append(np.float64(1 / position))
+            return obs
         return list(status) + list(normalized_pose)
 
     def _reward(self, succeeded_counter):

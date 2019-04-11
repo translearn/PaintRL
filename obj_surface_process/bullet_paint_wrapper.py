@@ -37,10 +37,10 @@ def _get_color(color):
 
 def _clip_to_01_np(v):
     if v < 0:
-        return np.float32(0)
+        return np.float64(0)
     if v > 1:
-        return np.float32(1)
-    return np.float32(v)
+        return np.float64(1)
+    return np.float64(v)
 
 
 def normalize(v, tolerance=0.00001):
@@ -123,7 +123,9 @@ class ConvHull:
 
 
 class BarycentricInterpolator:
+
     MIN_AREA = 1e-4
+
     """
     Each f line in the obj will be initialized as a barycentric interpolator
     The interpolation algorithm is taken from:
@@ -392,6 +394,7 @@ class HSIColorHandler(ColorHandler):
     """
     TARGET_MAX = int(255 / 10)
     BETA = 2
+    debug_stack = {}
 
     def is_changed(self, texel, color):
         return self._part.texture_pixels[texel] <= color
@@ -422,8 +425,12 @@ class HSIColorHandler(ColorHandler):
         for counter, index in enumerate(points):
             i, j = self._part.profile[side][index]
             change_time = int(self.TARGET_MAX * (1 - (distances[counter] / r) ** 2) ** (self.BETA - 1)) + 1
-            succeed_counter += self.change_pixel(change_time, i, j)
+            changed_percent = self.change_pixel(change_time, i, j)
+            succeed_counter += changed_percent
             affected_pixels.append((i, j))
+            # if (i, j) not in self.debug_stack:
+            #     self.debug_stack[(i, j)] = changed_percent
+            # self.debug_stack[(i, j)] += changed_percent
         affected_pixels = list(set(affected_pixels))
         return succeed_counter, affected_pixels
 
@@ -782,10 +789,14 @@ class Part:
         self._writer = TextWriter(self.urdf_id, self.principle_axes, self.ranges)
         self._set_grid_dict()
         self._correct_bary_normals()
-        if self._obs == 'section':
+
+        if self._obs in ('section', 'discrete'):
             self._obs_handler = SectionObservation(self, self._obs_grad)
-        else:
+        elif self._obs == 'grid':
             self._obs_handler = GridObservation(self, self._obs_grad)
+        else:
+            self._obs_handler = NoObservation(self)
+
         if self._color_mode == 'RGB':
             self._color_handler = self.color_setter
         else:
@@ -928,17 +939,18 @@ class Part:
             self.grid_range[side] = {key: (value[1] - value[0]) for key, value in grid_dict.items()}
             self._max_grid_size[side] = max(self.grid_range[side].values())
 
-    def get_normalized_pose(self, side, pose):
+    def get_normalized_pose(self, side, pose, radius=0.05):
         axis1_real = pose[self.principle_axes[0]]
         axis2_real = pose[self.principle_axes[1]]
-        axis2_in_range = (axis2_real - self.ranges[1][0]) / (self.ranges[1][1] - self.ranges[1][0])
+        axis2_in_range = (axis2_real - self.ranges[1][0] + radius) / (self.ranges[1][1] -
+                                                                      self.ranges[1][0] + 2 * radius)
         grid_index = self._get_grid_index_2(axis2_real)
         grid_range = self.grid_dict[side][grid_index]
         # self._debug_grid(pose, side)
         if grid_range[1] - grid_range[0] == 0:
             axis1_in_range = 0
         else:
-            axis1_in_range = (axis1_real - grid_range[0]) / (grid_range[1] - grid_range[0])
+            axis1_in_range = (axis1_real - grid_range[0] + radius) / (grid_range[1] - grid_range[0] + 2 * radius)
         return _clip_to_01_np(axis1_in_range), _clip_to_01_np(axis2_in_range)
 
     def _debug_grid(self, pose, side):
@@ -970,6 +982,12 @@ class Observation:
         raise NotImplementedError
 
 
+class NoObservation(Observation):
+
+    def get_observation(self, side, color, pose):
+        return None
+
+
 class SectionObservation(Observation):
     # Distance weight factor, 0 means no distance weight
     DISTANCE_FACTOR = 1
@@ -981,7 +999,7 @@ class SectionObservation(Observation):
 
     def get_observation(self, side, color, pose):
         obs = {i: 0 for i in range(self.section)}
-        result = np.zeros(self.section, dtype=np.float32)
+        result = np.zeros(self.section, dtype=np.float64)
         basis = 2 * np.pi / self.section
         for pixel, coordinate in self._part.profile_dicts[side].items():
             relative_x = coordinate[self._part.principle_axes[0]] - pose[self._part.principle_axes[0]]
@@ -1000,7 +1018,7 @@ class SectionObservation(Observation):
         max_factor = max(obs, key=obs.get)
         if obs[max_factor] != 0:
             for phase in obs:
-                result[phase] = np.float32(obs[phase] / obs[max_factor])
+                result[phase] = np.float64(obs[phase] / obs[max_factor])
         return result
 
 
@@ -1069,7 +1087,7 @@ class GridObservation(Observation):
 
     def get_observation(self, side, color, _):
         # self._show_grids(color, side)
-        obs = np.zeros((self._h_granularity, self._h_granularity), dtype=np.float32)
+        obs = np.zeros((self._h_granularity, self._h_granularity), dtype=np.float64)
         for i in range(self._h_granularity):
             for j in range(self._h_granularity):
                 num_pixels = len(self._grid_pixels[side][i][j])
@@ -1079,7 +1097,7 @@ class GridObservation(Observation):
                 for pixel in self._grid_pixels[side][i][j]:
                     if self._part.get_pixel_status(pixel, color):
                         done_counter += 1
-                obs[i][j] = np.float32(1 - done_counter / num_pixels)
+                obs[i][j] = np.float64(1 - done_counter / num_pixels)
         return obs.reshape((self._h_granularity ** 2,))
 
 
@@ -1335,8 +1353,8 @@ def get_texture_size(urdf_id):
     return _urdf_cache[urdf_id].get_texture_size()
 
 
-def get_normalized_pose(urdf_id, side, pose):
-    return _urdf_cache[urdf_id].get_normalized_pose(side, pose)
+def get_normalized_pose(urdf_id, side, pose, radius=0.05):
+    return _urdf_cache[urdf_id].get_normalized_pose(side, pose, radius)
 
 
 def get_partial_observation(urdf_id, side, color, pose):
