@@ -36,6 +36,7 @@ def simple_rgb_spiral():
                 direction += 1
                 current_counter = strait_counter
             step_counter += 1
+            print('OBS: {0}, REWARD: {1}'.format(obs, reward))
             total_return += reward
         print('In {0} steps get {1} rewards'.format(step_counter, total_return))
 
@@ -74,9 +75,10 @@ def simple_hsi_spiral():
                 direction += 1
                 current_counter = strait_counter
             step_counter += 1
+            print('OBS: {0}, REWARD: {1}'.format(obs, reward))
             total_return += reward
         print('In {0} steps get {1} rewards'.format(step_counter, total_return))
 
 
 if __name__ == '__main__':
-    simple_hsi_spiral()
+    simple_rgb_spiral()

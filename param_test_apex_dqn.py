@@ -1,4 +1,4 @@
-from paint_ppo import main
+from param_test_ppo import main
 
 
 if __name__ == '__main__':
@@ -7,11 +7,9 @@ if __name__ == '__main__':
         'num_gpus': 1,
 
         'num_atoms': 1,
-        # 'v_min': -120.0,
-        # 'v_max': 120.0,
         'dueling': True,
         'double_q': True,
-        'hiddens': [256],
+        'hiddens': [512],
 
         'timesteps_per_iteration': 200,
         'target_network_update_freq': 1000,
@@ -19,7 +17,7 @@ if __name__ == '__main__':
         'parameter_noise': False,
         'batch_mode': 'truncate_episodes',
 
-        'buffer_size': 10000,
+        'buffer_size': 50000,
         'prioritized_replay': False,
         'compress_observations': False,
 

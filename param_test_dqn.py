@@ -1,4 +1,4 @@
-from paint_ppo import main
+from param_test_ppo import main
 
 
 if __name__ == '__main__':
@@ -17,9 +17,9 @@ if __name__ == '__main__':
         'adam_epsilon': .00015,
         'hiddens': [512],
         'learning_starts': 200,
-        'buffer_size': 5000,
+        'buffer_size': 50000,
         'sample_batch_size': 20,
-        'train_batch_size': 32,
+        'train_batch_size': 512,
         'schedule_max_timesteps': 4000,
         'exploration_final_eps': 0.01,
         'exploration_fraction': 0.2,

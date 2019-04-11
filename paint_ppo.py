@@ -67,7 +67,7 @@ def on_sample_end(info):
 
 def on_train_result(info):
     print('agent.train() result: {} -> {} episodes'.format(
-        info['agent'], info['result']['episodes_this_iter']))
+        info['trainer'], info['result']['episodes_this_iter']))
     # you can mutate the result dict to add new fields to return
     info['result']['callback_ok'] = True
 
@@ -147,8 +147,8 @@ def main(algorithm, config):
 
 if __name__ == '__main__':
     configuration = {
-        'num_workers': 30,
-        'num_gpus': 2,
+        'num_workers': 15,
+        'num_gpus': 1,
         'simple_optimizer': False,
 
         # 'model': {
@@ -156,7 +156,7 @@ if __name__ == '__main__':
         #     'custom_options': {},  # extra options to pass to your model
         # },
         'model': {
-            'fcnet_hiddens': [256, 128],
+            'fcnet_hiddens': [512],
             'use_lstm': False,
         },
         'vf_share_layers': False,
@@ -165,7 +165,7 @@ if __name__ == '__main__':
         'vf_clip_param': 125.0,
 
         'sample_batch_size': 100,
-        'train_batch_size': 3000,
+        'train_batch_size': 1500,
         'sgd_minibatch_size': 64,
         'num_sgd_iter': 16,
     }
