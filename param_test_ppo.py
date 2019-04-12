@@ -34,6 +34,7 @@ def main(algorithm, config):
         tune.run_experiments(experiment_config)
     else:
         experiment_config['param_test']['config']['num_workers'] = 2
+        experiment_config['param_test']['config']['env_config']['train_mode'] = False
         args.run = experiment_config['param_test']['run']
         args.env = experiment_config['param_test']['env']
         args.steps = 400
@@ -47,7 +48,6 @@ if __name__ == '__main__':
     configuration = {
         'num_workers': 15,
         'num_gpus': 1,
-        'simple_optimizer': False,
 
         'model': {
             'fcnet_hiddens': [256, 128],
@@ -56,11 +56,11 @@ if __name__ == '__main__':
         'vf_share_layers': False,
         'batch_mode': 'truncate_episodes',
         'observation_filter': 'NoFilter',
-        'vf_clip_param': 2,
+        'vf_clip_param': 320,
 
-        'sample_batch_size': 100,
-        'train_batch_size': 1500,
-        'sgd_minibatch_size': 64,
-        'num_sgd_iter': 16,
+        'sample_batch_size': 200,
+        'train_batch_size': 4000,
+        'sgd_minibatch_size': 128,
+        'num_sgd_iter': 32,
     }
     main('PPO', configuration)

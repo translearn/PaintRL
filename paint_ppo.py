@@ -156,7 +156,7 @@ if __name__ == '__main__':
         #     'custom_options': {},  # extra options to pass to your model
         # },
         'model': {
-            'fcnet_hiddens': [512],
+            'fcnet_hiddens': [256, 128],
             'use_lstm': False,
         },
         'vf_share_layers': False,
