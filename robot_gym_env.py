@@ -153,7 +153,7 @@ class RobotGymEnv(gym.Env):
     if OBS_MODE == 'section':
         observation_space = spaces.Box(low=0.0, high=1.0, shape=(OBS_GRAD + 2,), dtype=np.float64)
     elif OBS_MODE == 'grid':
-        observation_space = spaces.Box(low=0.0, high=1.0, shape=(OBS_GRAD ** 2 + 2,), dtype=np.float64)
+        observation_space = spaces.Box(low=0.0, high=1.0, shape=(OBS_GRAD ** 2,), dtype=np.float64)
     elif OBS_MODE == 'simple':
         observation_space = spaces.Box(low=0.0, high=1.0, shape=(2,), dtype=np.float64)
     else:
@@ -172,7 +172,7 @@ class RobotGymEnv(gym.Env):
         if mode == 'section':
             cls.observation_space = spaces.Box(low=0.0, high=1.0, shape=(18 + 2,), dtype=np.float64)
         elif mode == 'grid':
-            cls.observation_space = spaces.Box(low=0.0, high=1.0, shape=(cls.OBS_GRAD ** 2 + 2,), dtype=np.float64)
+            cls.observation_space = spaces.Box(low=0.0, high=1.0, shape=(cls.OBS_GRAD ** 2,), dtype=np.float64)
         elif mode == 'simple':
             cls.observation_space = spaces.Box(low=0.0, high=1.0, shape=(2,), dtype=np.float64)
         else:
@@ -307,7 +307,9 @@ class RobotGymEnv(gym.Env):
         if self.OBS_MODE == 'simple':
             return list(normalized_pose)
         status = p.get_partial_observation(self._part_id, self._paint_side, self._paint_color, pose)
-        if self.OBS_MODE == 'discrete':
+        if self.OBS_MODE == 'grid':
+            return status
+        elif self.OBS_MODE == 'discrete':
             position = _get_discrete_obs(normalized_pose)
             obs = list(status)
             obs.append(np.float64(1 / position))
