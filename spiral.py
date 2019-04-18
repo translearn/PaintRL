@@ -81,4 +81,4 @@ def simple_hsi_spiral():
 
 
 if __name__ == '__main__':
-    simple_rgb_spiral()
+    simple_hsi_spiral()

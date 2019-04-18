@@ -4,6 +4,9 @@ import ray.tune as tune
 from ray.rllib.rollout import run
 from PaintRLEnv.param_test_env import ParamTestEnv
 
+SIZE = 20
+VF_CLIP = (SIZE - 2) ** 2 * (1 - 0.2)
+
 
 def main(algorithm, config):
     parser = argparse.ArgumentParser()
@@ -24,10 +27,10 @@ def main(algorithm, config):
                 'training_iteration': 10000,
             },
             'config': config,
-            'checkpoint_freq': 500,
+            'checkpoint_freq': 200,
         }
     }
-    experiment_config['param_test']['config']['env_config'] = {'size': 22, }
+    experiment_config['param_test']['config']['env_config'] = {'size': SIZE, }
     if args.mode == 'train':
         ray.init(object_store_memory=10000000000, redis_max_memory=10000000000, log_to_driver=True)
         # ray.init(redis_address='141.3.81.141:6379')
@@ -46,21 +49,36 @@ def main(algorithm, config):
 
 if __name__ == '__main__':
     configuration = {
-        'num_workers': 15,
+        'num_workers': 11,
+        'num_envs_per_worker': 2,
         'num_gpus': 1,
 
         'model': {
-            'fcnet_hiddens': [256, 128],
+            # 'conv_filters': [
+            #     [16, [4, 4], 2],
+            #     [32, [4, 4], 2],
+            #     [256, [11, 11], 1],
+            # ],
+            'fcnet_hiddens': [512],
             'use_lstm': False,
         },
-        'vf_share_layers': False,
+        'vf_share_layers': True,
         'batch_mode': 'truncate_episodes',
         'observation_filter': 'NoFilter',
-        'vf_clip_param': 320,
+        'vf_clip_param': VF_CLIP,
 
-        'sample_batch_size': 200,
-        'train_batch_size': 4000,
-        'sgd_minibatch_size': 128,
+        'sample_batch_size': 100,
+        'train_batch_size': 2200,
+        'sgd_minibatch_size': 64,
         'num_sgd_iter': 32,
+
+        # 'gamma': 1,
+        # 'use_gae': False,
+        # 'lambda': 1,
+        # 'kl_coeff': 0.5,
+        'clip_rewards': False,
+        # 'clip_param': 0.1,
+        # 'entropy_coeff': 0.01,
+
     }
     main('PPO', configuration)
