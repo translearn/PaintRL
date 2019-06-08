@@ -159,7 +159,7 @@ if __name__ == '__main__':
             'fcnet_hiddens': [256, 128],
             'use_lstm': False,
         },
-        'vf_share_layers': False,
+        'vf_share_layers': True,
         'batch_mode': 'truncate_episodes',
         'observation_filter': 'NoFilter',
         'vf_clip_param': 125.0,
