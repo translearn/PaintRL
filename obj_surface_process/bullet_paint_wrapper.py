@@ -267,7 +267,7 @@ class BarycentricInterpolator:
         return self.center_point, target_point
 
     def draw_face_normal(self):
-        center_point, target_point = self.get_face_guide_point(0.25)
+        center_point, target_point = self.get_face_guide_point(0.15)
         addUserDebugLine(center_point, target_point, (1, 0, 0) if self._side == Side.front else (0, 1, 0))
 
     def calculate_normal_from_abc(self):
@@ -560,6 +560,7 @@ class Part:
             self.FRONT_COLOR = (0.75, 0.75, 0.75) if self._color_mode == 'RGB' else (1, 1, 1)
             front_color = _get_color(self.FRONT_COLOR)
             back_color = _get_color(self.BACK_COLOR)
+            # front_color = back_color = irr_color = _get_color((0.75, 0.75, 0.75))
             for point in target_pixels:
                 self.color_setter.change_pixel(irr_color, *point)
             for point in self.profile[Side.back]:
@@ -1073,11 +1074,16 @@ class GridObservation(Observation):
         self._merge_vertical_grids(grid_pixels)
 
     def _show_grids(self, color, side):
+
         for i in range(self._h_granularity):
+            even = 0
+            # color = _get_color((1, 0, 0))
             if i % 2 == 0:
-                continue
+                # color = _get_color((0, 1, 0))
+                even = 1
+                # continue
             for j in range(self._h_granularity):
-                if j % 2 == 0:
+                if j % 2 == even:
                     continue
                 num_pixels = len(self._grid_pixels[side][i][j])
                 if num_pixels == 0:

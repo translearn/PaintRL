@@ -2,6 +2,7 @@ import gym
 from gym import spaces
 from gym.utils import seeding
 import numpy as np
+from termcolor import colored
 
 
 class Observation:
@@ -31,7 +32,22 @@ class NoObservation(Observation):
         return np.array([])
 
 
-class GridObservation(Observation):
+class DirectObservation(Observation):
+
+    def reset_counters(self):
+        pass
+
+    def refresh_counters(self, i, j):
+        pass
+
+    def get_observation(self):
+        obs = np.ones((self._part.size, self._part.size))
+        for i, j in self._part.world:
+            obs[i][j] = self._part.world[(i, j)]
+        return obs.reshape((self._part.size, self._part.size, 1))
+
+
+class Grid4Observation(Observation):
 
     def __init__(self, part):
         Observation.__init__(self, part)
@@ -43,15 +59,15 @@ class GridObservation(Observation):
         self._counter_1 = self._counter_2 = self._counter_3 = self._counter_4 = self._init_counter
 
     def refresh_counters(self, i, j):
-        if 1 <= i <= 10:
-            if 1 <= j <= 10:
+        if 1 <= i <= self._part.size / 2 - 1:
+            if 1 <= j <= self._part.size / 2 - 1:
                 self._counter_1 -= 1
-            elif 11 <= j <= 20:
+            elif self._part.size / 2 <= j <= self._part.size - 2:
                 self._counter_2 -= 1
-        elif 11 <= i <= 20:
-            if 1 <= j <= 10:
+        elif self._part.size / 2 <= i <= self._part.size - 2:
+            if 1 <= j <= self._part.size / 2 - 1:
                 self._counter_3 -= 1
-            elif 11 <= j <= 20:
+            elif self._part.size / 2 <= j <= self._part.size - 2:
                 self._counter_4 -= 1
 
     def get_observation(self):
@@ -64,6 +80,10 @@ class GridObservation(Observation):
 
 class Grid10Observation(Observation):
 
+    def __init__(self, part):
+        Observation.__init__(self, part)
+        self._edge_set = (0, self._part.size - 1)
+
     def reset_counters(self):
         pass
 
@@ -74,7 +94,7 @@ class Grid10Observation(Observation):
         max_counter = int(self._part.init_reward_counter / 100)
         obs = np.zeros((10, 10), dtype=np.float64)
         for pos in self._part.world:
-            if pos[0] in (0, 21) or pos[1] in (0, 21):
+            if pos[0] in self._edge_set or pos[1] in self._edge_set:
                 continue
             x, y = int(pos[0] / 2 + 0.5) - 1, int(pos[1] / 2 + 0.5) - 1
             obs[x][y] += self._part.world[pos] / max_counter
@@ -112,11 +132,13 @@ class SectionObservation(Observation):
         obs_2 = 0 if max_2 == 0 else counter_2 / max_2
         obs_3 = 0 if max_3 == 0 else counter_3 / max_3
         obs_4 = 0 if max_4 == 0 else counter_4 / max_4
+        # obs_1, obs_2, obs_3, obs_4 = 1 - obs_1, 1 - obs_2, 1 - obs_3, 1 - obs_4
         return np.asarray([obs_1, obs_2, obs_3, obs_4])
 
 
 class ParamTestEnv(gym.Env):
     OBS_MODE = 'section'
+    TERMINATION_BY_REPEAT = False
 
     reward_range = (-1e3, 1e3)
     action_space = spaces.Discrete(4)
@@ -124,13 +146,18 @@ class ParamTestEnv(gym.Env):
         observation_space = spaces.Box(low=0.0, high=1.0, shape=(6,), dtype=np.float64)
     elif OBS_MODE == 'simple':
         observation_space = spaces.Box(low=0.0, high=1.0, shape=(2,), dtype=np.float64)
+    elif OBS_MODE == 'direct':
+        observation_space = spaces.Box(low=0.0, high=1.0, shape=(42, 42, 1), dtype=np.float64)
     else:
         spaces.Box(low=0.0, high=1.0, shape=(100,), dtype=np.float64)
 
-    EPISODE_MAX_LENGTH = 400
+    EPISODE_MAX_LENGTH = 256
+
+    ACTION_DEF = {0: '🠆', 1: '🠅', 2: '🠄', 3: '🠇'}
 
     def __init__(self, size, train_mode=True):
         self.size = size
+        self.EPISODE_MAX_LENGTH = max(self.EPISODE_MAX_LENGTH, (self.size - 2) ** 2)
         self._mode = train_mode
         self.world = {}
         self.visit_table = {}
@@ -139,6 +166,7 @@ class ParamTestEnv(gym.Env):
         self._reward_counter = 0
         self._step_counter = 0
         self._violated_wall = False
+        self._repeat_visit = False
         for i in range(self.size):
             for j in range(self.size):
                 self.visit_table[(i, j)] = 0
@@ -148,12 +176,15 @@ class ParamTestEnv(gym.Env):
                     self.world[(i, j)] = 1
                     self._reward_counter += 1
         self._init_world = self.world.copy()
+        self._init_visit_table = self.visit_table.copy()
         self.init_reward_counter = self._reward_counter
         self._visualizer = Visualizer(self.size)
         if self.OBS_MODE == 'grid':
             self._obs_handler = Grid10Observation(self)
         elif self.OBS_MODE == 'section':
             self._obs_handler = SectionObservation(self)
+        elif self.OBS_MODE == 'direct':
+            self._obs_handler = DirectObservation(self)
         else:
             self._obs_handler = NoObservation(self)
 
@@ -163,8 +194,10 @@ class ParamTestEnv(gym.Env):
     def reset(self):
         self._i = 1
         self._j = 1
+        self.visit_table = self._init_visit_table.copy()
         self.visit_table[(self._i, self._j)] += 1
         self._violated_wall = False
+        self._repeat_visit = False
         self._reward_counter = self.init_reward_counter
         self._step_counter = 0
         self.world = self._init_world.copy()
@@ -190,6 +223,8 @@ class ParamTestEnv(gym.Env):
             self._violated_wall = True
             return immediate_reward
         self.visit_table[(self._i, self._j)] += 1
+        if self.visit_table[(self._i, self._j)] > 1:
+            self._repeat_visit = True
         return immediate_reward
 
     def _clip_pos(self, pos):
@@ -201,6 +236,8 @@ class ParamTestEnv(gym.Env):
 
     def _termination(self):
         if self._violated_wall or self._reward_counter <= 0 or self._step_counter >= self.EPISODE_MAX_LENGTH - 1:
+            return True
+        if self._repeat_visit and self.TERMINATION_BY_REPEAT:
             return True
         return False
 
@@ -235,10 +272,12 @@ class ParamTestEnv(gym.Env):
         if not self._mode:
             x, y = round(observation[-2] * self.size), round(observation[-1] * self.size)
             # complete_pos = list(np.append(observation[:-2], pos))
-            print('STEP: {0} ACTION: {1} OBS: [{2}, {3}], REWARD: {4}'.format(self._step_counter, action,
-                                                                              x, y, actual_reward))
+            print('STEP: {0} ACTION: {1} OBS: [{2}, {3}], REWARD: {4}'.format(self._step_counter,
+                                                                              self.ACTION_DEF[action], int(x), int(y),
+                                                                              actual_reward))
             # self._visualizer.print_world_table(self.world)
             if done:
+                self._visualizer.print_world_table(self.world)
                 self._visualizer.print_visit_table(self.visit_table)
         return observation, actual_reward, done, {'reward': reward, 'penalty': penalty}
 
@@ -261,25 +300,29 @@ class Visualizer:
         for i in range(1, self._size):
             self._template += '|{' + str(i) + ':3}'
 
-    def _print_table(self, table):
+    def _print_table(self, table, highlight_set=(1,)):
         print(self._template.format(*[str(i) for i in range(self._size)]))
         for i in range(self._size):
             values = []
+            edge_coordinate = (0, self._size - 1)
             for j in range(self._size):
-                values.append(table[(i, j)])
+                if table[(i, j)] in highlight_set and i not in edge_coordinate and j not in edge_coordinate:
+                    values.append(colored('  ' + str(table[(i, j)]), 'red', attrs=['bold']))
+                else:
+                    values.append(table[(i, j)])
             print(self._template.format(*values))
 
     def print_visit_table(self, table):
         print('Visit Table: count of visit in each state')
-        self._print_table(table)
+        # assume 19 maximum repeat time
+        self._print_table(table, highlight_set=[i for i in range(20) if i != 1])
 
     def print_world_table(self, table):
         print('World Table:')
         self._print_table(table)
 
 
-def zigzag():
-    grid_size = 22
+def zigzag(grid_size=22):
     env = ParamTestEnv(grid_size, train_mode=False)
     env.reset()
     # zigzag pattern
@@ -320,15 +363,14 @@ def zigzag():
     print('In {0} steps get {1} rewards'.format(step_counter, total_return))
 
 
-def spiral():
-    grid_size = 22
+def spiral(grid_size=22):
     env = ParamTestEnv(grid_size, train_mode=False)
     env.reset()
     done = False
     total_return = 0
     step_counter = 0
     direction = 0
-    strait_counter = 19
+    strait_counter = grid_size - 3
     current_counter = strait_counter
     use_len = 3
     while not done:
@@ -347,4 +389,4 @@ def spiral():
 
 
 if __name__ == '__main__':
-    zigzag()
+    spiral(20)

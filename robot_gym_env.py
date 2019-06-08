@@ -21,7 +21,7 @@ Part_Dict = {
     2: ['door_lf.urdf', 0],
     3: ['door_lr.urdf', 0],
     4: ['door_rf.urdf', 0],
-    5: ['door_rr.urdf', 0],
+    5: ['door_rr.urdf', 17000],
     6: ['roof.urdf', 0],
     7: ['bonnet.urdf', 0],
 }
@@ -121,22 +121,22 @@ class RobotGymEnv(gym.Env):
     RENDER_WIDTH = 960
     metadata = {'render.modes': ['human', 'rgb_array'], 'video.frames_per_second': 30}
 
-    Current_Part_No = 1
+    Current_Part_No = 0
     Expected_Episode_Length = 240
-    EPISODE_MAX_LENGTH = 240
+    EPISODE_MAX_LENGTH = 500
 
     reward_range = (-1e3, 1e3)
 
     # Adjust env by hand when using Ray!!!
-    ACTION_SHAPE = 1
-    ACTION_MODE = 'discrete'
+    ACTION_SHAPE = 2
+    ACTION_MODE = 'continuous'
     DISCRETE_GRANULARITY = 4
 
     TERMINATION_MODE = 'late'
     SWITCH_THRESHOLD = 0.9
 
-    OBS_MODE = 'grid'
-    OBS_GRAD = 5
+    OBS_MODE = 'section'
+    OBS_GRAD = 4
 
     START_POINT_MODE = 'fixed'
     TURNING_PENALTY = False
@@ -287,7 +287,7 @@ class RobotGymEnv(gym.Env):
         self._step_counter += 1
         # self._max_possible_point = p.get_job_limit(self._part_id, self._paint_side)
         finished = False if self._max_possible_point > self._total_reward * 100 else True
-        robot_termination = self.robot.termination_request()
+        robot_termination = self.robot.termination_request() if not self._rollout else False
 
         avg_reward = self._total_reward / self._step_counter
         # switch the mode of termination
@@ -302,7 +302,7 @@ class RobotGymEnv(gym.Env):
 
     def _augmented_observation(self):
         pose, _ = self.robot.get_observation()
-        # TODO: radius is a property of the paint gun, should be refactored to a gun obj
+        # TODO: radius is a property of the paint gun, should be refactored to a gun object
         normalized_pose = p.get_normalized_pose(self._part_id, self._paint_side, pose, radius=0.051)
         if self.OBS_MODE == 'simple':
             return list(normalized_pose)
