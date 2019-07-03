@@ -151,7 +151,7 @@ class ParamTestEnv(gym.Env):
     else:
         spaces.Box(low=0.0, high=1.0, shape=(100,), dtype=np.float64)
 
-    EPISODE_MAX_LENGTH = 256
+    EPISODE_MAX_LENGTH = 900
 
     ACTION_DEF = {0: '🠆', 1: '🠅', 2: '🠄', 3: '🠇'}
 

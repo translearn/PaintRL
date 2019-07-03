@@ -5,6 +5,12 @@ from random import uniform
 import obj_surface_process.bullet_paint_wrapper as p
 
 
+def _random_string(length):
+    import string
+    import random
+    return ''.join(random.choice(string.ascii_letters) for _ in range(length))
+
+
 def _get_target_projection_params(projection_distance, point_density):
     ratio = projection_distance / 0.5
     radius = 0.25 * ratio
@@ -167,6 +173,8 @@ class Robot:
     NOT_ON_PART_TERMINATE_STEPS = 1000
 
     BETA = 2
+    # Global_counter = 0
+    # Global_path = ''
 
     def __init__(self, step_manager, urdf_path, pos=(0, 0, 0), orn=(0, 0, 0, 1), with_robot=True):
         self.robot_id = 0
@@ -204,6 +212,10 @@ class Robot:
         self._terminate_counter = 0
         self._last_on_part = True
         self._last_turning_angle = 0
+        #
+        # self.Global_path = '/tmp/' + _random_string(10) + '/'
+        # os.mkdir(self.Global_path)
+        # self.Global_counter = 0
 
     def _load_robot_info(self):
         self.joint_count = p.getNumJoints(self.robot_id)
@@ -267,6 +279,7 @@ class Robot:
         results = p.rayTestBatch(*beams)
         points = [item[3] for item in results if item[0] != -1]
         succeed_data = p.paint(part_id, points, color, paint_side)
+        # succeed_data = p.slow_paint(part_id, points, color, paint_side)
         return succeed_data
 
     def _fast_paint(self, part_id, color, paint_side, show_debug_lines=False):
@@ -398,6 +411,14 @@ class Robot:
                 print('not in pose!')
             # paint_succeed_data = self._paint(part_id, color, paint_side)
             paint_succeed_data = self._fast_paint(part_id, color, paint_side)
+            # pic = p.get_texture_image(part_id)
+            # pic = pic.resize([480, 480])
+            # path = self.Global_path + str(self.Global_counter)
+            # print(path)
+            # pic.save(path + '.jpg', 'JPEG')
+            # self.Global_counter += 1
+            # for i in range(100):
+            #     self._step_manager.step_simulation()
             possible_pixels.extend(paint_succeed_data[0])
             succeeded_counter += paint_succeed_data[1]
             # self._draw_tcp_orn()

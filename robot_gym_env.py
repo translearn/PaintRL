@@ -15,18 +15,6 @@ from video_renderer import VideoRecorder
 from timeit import default_timer as timer
 
 
-Part_Dict = {
-    0: ['door_test.urdf', 9148],
-    1: ['square.urdf', 14350],
-    2: ['door_lf.urdf', 0],
-    3: ['door_lr.urdf', 0],
-    4: ['door_rf.urdf', 0],
-    5: ['door_rr.urdf', 17000],
-    6: ['roof.urdf', 0],
-    7: ['bonnet.urdf', 0],
-}
-
-
 def _get_view_matrix():
     cam_target_pos = (-0.03, -0.25, 0.82)
     cam_distance = 1
@@ -116,20 +104,34 @@ def _get_discrete_obs(obs):
     return (x + 1) * 22 + y
 
 
+Part_Dict = {
+    0: ['door_test.urdf', 9148],
+    1: ['square.urdf', 14350],
+    2: ['door_lf.urdf', 0],
+    3: ['door_lr.urdf', 0],
+    4: ['door_rf.urdf', 0],
+    5: ['door_rr.urdf', 17000],
+    6: ['roof.urdf', 0],
+    7: ['bonnet.urdf', 0],
+    8: ['door_rr_big.urdf', 0],
+    9: ['test.urdf', 9148],
+}
+
+
 class RobotGymEnv(gym.Env):
     RENDER_HEIGHT = 720
     RENDER_WIDTH = 960
     metadata = {'render.modes': ['human', 'rgb_array'], 'video.frames_per_second': 30}
 
-    Current_Part_No = 0
-    Expected_Episode_Length = 240
-    EPISODE_MAX_LENGTH = 500
-
     reward_range = (-1e3, 1e3)
 
     # Adjust env by hand when using Ray!!!
-    ACTION_SHAPE = 2
-    ACTION_MODE = 'continuous'
+    Current_Part_No = 0
+    Expected_Episode_Length = 245
+    EPISODE_MAX_LENGTH = 245
+
+    ACTION_SHAPE = 1
+    ACTION_MODE = 'discrete'
     DISCRETE_GRANULARITY = 4
 
     TERMINATION_MODE = 'late'
@@ -138,7 +140,7 @@ class RobotGymEnv(gym.Env):
     OBS_MODE = 'section'
     OBS_GRAD = 4
 
-    START_POINT_MODE = 'fixed'
+    START_POINT_MODE = 'anchor'
     TURNING_PENALTY = False
     OVERLAP_PENALTY = False
     COLOR_MODE = 'RGB'
@@ -245,6 +247,7 @@ class RobotGymEnv(gym.Env):
         self._setup_bullet_params()
         self._step_manager = StepManager(self, render_video, '/home/pyang/Videos/')
         self._load_environment()
+        self.replay_buffer = []
 
     def __enter__(self):
         self.reset()
@@ -260,7 +263,11 @@ class RobotGymEnv(gym.Env):
             cid = p.connect(p.SHARED_MEMORY)
             if cid < 0:
                 p.connect(p.GUI)
-                p.resetDebugVisualizerCamera(1.40, 52.00, -33.60, (0.0, -0.2, 0.5))
+                # p.resetDebugVisualizerCamera(1.40, 52.00, -33.60, (0.0, -0.2, 0.5))
+                # sheet screenshot angle
+                p.resetDebugVisualizerCamera(1.0, 90.40, -3.20, (0.00, -0.18, 0.73))
+                # door screenshot angle
+                # p.resetDebugVisualizerCamera(1.0, 90.40, -3.20, (-0.60, -0.19, 0.65))
         else:
             p.connect(p.DIRECT)
             p.resetSimulation()
@@ -287,7 +294,7 @@ class RobotGymEnv(gym.Env):
         self._step_counter += 1
         # self._max_possible_point = p.get_job_limit(self._part_id, self._paint_side)
         finished = False if self._max_possible_point > self._total_reward * 100 else True
-        robot_termination = self.robot.termination_request() if not self._rollout else False
+        robot_termination = self.robot.termination_request()
 
         avg_reward = self._total_reward / self._step_counter
         # switch the mode of termination
@@ -336,7 +343,7 @@ class RobotGymEnv(gym.Env):
             # overlap_penalty = 1 - paint_succeed_rate
             total_penalty += overlap_penalty
         if self.TURNING_PENALTY:
-            turning_penalty = 0.2 * (self.robot.get_angle_diff() / math.pi)
+            turning_penalty = 0.1 * (self.robot.get_angle_diff() / math.pi)
             total_penalty += turning_penalty
         return total_penalty
 
@@ -348,25 +355,32 @@ class RobotGymEnv(gym.Env):
             return [2 * action / self.action_space.n]
 
     def step(self, action):
-        action = self._preprocess_action(action)
-        paint_succeed_rate, succeeded_counter = self.robot.apply_action(action, self._part_id,
+        p_action = self._preprocess_action(action)
+        paint_succeed_rate, succeeded_counter = self.robot.apply_action(p_action, self._part_id,
                                                                         self._paint_color, self._paint_side)
         reward = self._reward(succeeded_counter)
         penalty = self._penalty(paint_succeed_rate)
         actual_reward = reward - penalty
         done = self._termination()
+        # if paint_succeed_rate < 0.5:
+        #     done = True
         observation = self._augmented_observation()
         if not done:
             self._total_return += actual_reward
         if self._renders:
             p.write_text_info(self._part_id, action, reward, penalty, self._total_return, self._step_counter)
-        return observation, actual_reward, done, {'reward': reward, 'penalty': penalty}
+            if self._rollout:
+                self.replay_buffer.append(action)
+                if done:
+                    print(self.replay_buffer)
+        return observation, actual_reward, done,  {'reward': reward, 'penalty': penalty}
 
     def reset(self):
         if self._rollout:
             p.removeAllUserDebugItems()
             p.reset_part(self._part_id, self._paint_side, self._paint_color, 0, 0)
             start_point = self._start_points[0]
+            self.replay_buffer = []
         else:
             painted_percent = 0  # randint(0, 49)
             painted_mode = randint(0, 7)
@@ -387,10 +401,16 @@ class RobotGymEnv(gym.Env):
             raise Exception('please set render parameter to true to see the result')
         else:
             # call _get_view_matrix to get it, write out explicitly to speed up render process
-            view_matrix = (0.6156615018844604, -0.4360785186290741, 0.6563509702682495, 0.0,
-                           0.788010835647583, 0.3407019078731537, -0.5127975344657898, 0.0,
-                           -4.470348358154297e-08, 0.8329213857650757, 0.5533915758132935, 0.0,
-                           0.21547260880470276, -0.6109024286270142, -1.5622899532318115, 1.0)
+            # Left side View
+            # view_matrix = (0.6156615018844604, -0.4360785186290741, 0.6563509702682495, 0.0,
+            #                0.788010835647583, 0.3407019078731537, -0.5127975344657898, 0.0,
+            #                -4.470348358154297e-08, 0.8329213857650757, 0.5533915758132935, 0.0,
+            #                0.21547260880470276, -0.6109024286270142, -1.5622899532318115, 1.0)
+            # Front view
+            view_matrix = (-0.006981172598898411, -0.05582012981176376, 0.998416543006897, 0.0,
+                           0.9999756813049316, -0.00038970436435192823, 0.006970287300646305, 0.0,
+                           4.94765073355552e-09, 0.9984409213066101, 0.055821485817432404, 0.0,
+                           0.18580667674541473, -0.682552695274353, -0.4359097480773926, 1.0)
 
             proj_matrix = (0.7499999403953552, 0.0, 0.0, 0.0,
                            0.0, 1.0, 0.0, 0.0,
@@ -431,10 +451,12 @@ if __name__ == '__main__':
         # env.step([-0.5])
         # env.step([0])
         # env.step([0])
-        for i in range(8):
-            env.step(i)
-            print(env.robot.get_angle_diff())
-            env.step(8 - i)
+        # exit()
+        # for i in range(8):
+        #     env.step(i)
+        #     print(env.robot.get_angle_diff())
+        #     env.step(8 - i)
+        #     env.reset()
         # env.step([1, 1])
         # for _ in range(20):
         #     env.step([0, 1])

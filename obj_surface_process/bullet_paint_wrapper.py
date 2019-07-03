@@ -123,14 +123,12 @@ class ConvHull:
 
 
 class BarycentricInterpolator:
-
-    MIN_AREA = 1e-4
-
     """
     Each f line in the obj will be initialized as a barycentric interpolator
     The interpolation algorithm is taken from:
     https://gamedev.stackexchange.com/questions/23743/whats-the-most-efficient-way-to-find-barycentric-coordinates
     """
+    MIN_AREA = 1e-4
 
     def __init__(self, a, b, c):
         self._a = a
@@ -336,8 +334,8 @@ class TextWriter:
 
     def write_text_info(self, action, reward, penalty, total_return, step):
         self._delete_old_info()
-        if len(action) == 1:
-            self._write_line('Action: [{0:.3f}]'.format(round(action[0], 3)))
+        if isinstance(action, (int, np.int64)):
+            self._write_line('Action: [{0:.3f}]'.format(round(action, 3)))
         else:
             self._write_line('Action: [{0:.3f}, {1:.3f}]'.format(round(action[0], 3), round(action[1], 3)))
         self._write_line('Reward: {0:.3f}, Penalty: {1:.3f}'.format(round(reward, 3), round(penalty, 3)))
@@ -365,6 +363,8 @@ class RGBColorHandler(ColorHandler):
     def is_changed(self, texel, color):
         # compare only the first channel to speed up the process
         return self._part.texture_pixels[texel] == color[0]
+        # return self._part.texture_pixels[texel] == color[0] and self._part.texture_pixels[texel + 1] == color[1] \
+        #        and self._part.texture_pixels[texel + 2] == color[2]
 
     def change_pixel(self, color, i, j):
         texel = self._part.get_texel(i, j)
@@ -523,6 +523,30 @@ class Part:
             return pose, orn
         return None, None
 
+    def _change_texel_color(self, color, bary, point):
+        i, j = bary.get_texel(point, self.texture_width, self.texture_height)
+        return i, j, self._color_handler.change_pixel(color, i, j)
+
+    def slow_paint(self, points, color, side):
+        color = _get_color(color)
+        current_side = side
+        if not points:
+            return [], 0
+        nearest_vertices = self.vertices_kd_tree[current_side].query(points, k=1)[1]
+        affected_pixels = []
+        succeed_counter = 0
+        for i, point in enumerate(points):
+            bary = self._get_closest_bary(point, nearest_vertices[i], current_side)
+            if bary:
+                i, j, success = self._change_texel_color(color, bary, point)
+                succeed_counter += success
+                affected_pixels.append((i, j))
+        changeTexture(self.texture_id, self.texture_pixels, self. texture_width, self.texture_height)
+        affected_pixels = list(set(affected_pixels))
+        valid_pixels = [pixel for pixel in affected_pixels if pixel not in self._last_painted_pixels]
+        self._last_painted_pixels = affected_pixels
+        return valid_pixels, succeed_counter
+
     def paint(self, points, color, side):
         color = _get_color(color)
         # no intersection then no paint
@@ -560,7 +584,7 @@ class Part:
             self.FRONT_COLOR = (0.75, 0.75, 0.75) if self._color_mode == 'RGB' else (1, 1, 1)
             front_color = _get_color(self.FRONT_COLOR)
             back_color = _get_color(self.BACK_COLOR)
-            # front_color = back_color = irr_color = _get_color((0.75, 0.75, 0.75))
+            # front_color = back_color = irr_color = _get_color((0.75, 0.75, 0.75))  # _get_color((1, 1, 1))
             for point in target_pixels:
                 self.color_setter.change_pixel(irr_color, *point)
             for point in self.profile[Side.back]:
@@ -835,7 +859,8 @@ class Part:
         return delta_axis1 * avg_size / self._max_grid_size[side]
 
     def get_guided_point(self, point, normal, delta_axis1, delta_axis2):
-        current_side = _get_side([-i for i in normal], self.front_normal)
+        # current_side = _get_side([-i for i in normal], self.front_normal)
+        current_side = Side.front
         point = list(point)
         delta_2 = delta_axis2 * self._length_width_ratio
         # delta_1 = self._get_delta_1(point, current_side, delta_axis1, delta_2)
@@ -998,29 +1023,56 @@ class SectionObservation(Observation):
         Observation.__init__(self, part)
         self.section = section
 
+    # def get_observation(self, side, color, pose):
+    #     obs = {i: 0 for i in range(self.section)}
+    #     result = np.zeros(self.section, dtype=np.float64)
+    #     basis = 2 * np.pi / self.section
+    #     for pixel, coordinate in self._part.profile_dicts[side].items():
+    #         relative_x = coordinate[self._part.principle_axes[0]] - pose[self._part.principle_axes[0]]
+    #         relative_y = coordinate[self._part.principle_axes[1]] - pose[self._part.principle_axes[1]]
+    #         if relative_x == 0 and relative_y == 0:
+    #             continue
+    #         angle = np.arctan2(relative_y, relative_x)
+    #         if angle < 0:
+    #             angle = 2 * np.pi + angle
+    #         phase = angle // basis
+    #         # distance weighted point should be redesigned, first without distance weight
+    #         distance = np.sqrt(relative_x ** 2 + relative_y ** 2)
+    #         weighted_distance = np.exp(-distance * SectionObservation.DISTANCE_FACTOR)
+    #         if not self._part.get_pixel_status(pixel, color):
+    #             obs[phase] += weighted_distance
+    #     max_factor = max(obs, key=obs.get)
+    #     if obs[max_factor] != 0:
+    #         for phase in obs:
+    #             result[phase] = np.float64(obs[phase] / obs[max_factor])
+    #     return result
+
     def get_observation(self, side, color, pose):
-        obs = {i: 0 for i in range(self.section)}
-        result = np.zeros(self.section, dtype=np.float64)
-        basis = 2 * np.pi / self.section
+        obs_1 = obs_2 = obs_3 = obs_4 = 0
+        counter_1 = counter_2 = counter_3 = counter_4 = 0
         for pixel, coordinate in self._part.profile_dicts[side].items():
             relative_x = coordinate[self._part.principle_axes[0]] - pose[self._part.principle_axes[0]]
             relative_y = coordinate[self._part.principle_axes[1]] - pose[self._part.principle_axes[1]]
+            valid = 1 if not self._part.get_pixel_status(pixel, color) else 0
             if relative_x == 0 and relative_y == 0:
                 continue
-            angle = np.arctan2(relative_y, relative_x)
-            if angle < 0:
-                angle = 2 * np.pi + angle
-            phase = angle // basis
-            # distance weighted point should be redesigned, first without distance weight
-            distance = np.sqrt(relative_x ** 2 + relative_y ** 2)
-            weighted_distance = np.exp(-distance * SectionObservation.DISTANCE_FACTOR)
-            if not self._part.get_pixel_status(pixel, color):
-                obs[phase] += weighted_distance
-        max_factor = max(obs, key=obs.get)
-        if obs[max_factor] != 0:
-            for phase in obs:
-                result[phase] = np.float64(obs[phase] / obs[max_factor])
-        return result
+            elif relative_x > 0 and relative_y > 0:
+                obs_1 += valid
+                counter_1 += 1
+            elif relative_x < 0 < relative_y:
+                obs_2 += valid
+                counter_2 += 1
+            elif relative_x < 0 and relative_y < 0:
+                obs_3 += valid
+                counter_3 += 1
+            else:
+                obs_4 += valid
+                counter_4 += 1
+        result_1 = np.float64(0) if counter_1 == 0 else np.float64(obs_1/counter_1)
+        result_2 = np.float64(0) if counter_2 == 0 else np.float64(obs_2 / counter_2)
+        result_3 = np.float64(0) if counter_3 == 0 else np.float64(obs_3 / counter_3)
+        result_4 = np.float64(0) if counter_4 == 0 else np.float64(obs_4 / counter_4)
+        return result_1, result_2, result_3, result_4
 
 
 class GridObservation(Observation):
@@ -1333,6 +1385,10 @@ def paint(urdf_id, points, color, side):
 
 def fast_paint(urdf_id, point, radius, color, side):
     return _urdf_cache[urdf_id].fast_paint(point, radius, color, side)
+
+
+def slow_paint(urdf_id, point, color, side):
+    return _urdf_cache[urdf_id].slow_paint(point, color, side)
 
 
 def get_job_status(urdf_id, side, color):
