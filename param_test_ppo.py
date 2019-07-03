@@ -4,7 +4,7 @@ import ray.tune as tune
 from ray.rllib.rollout import run
 from PaintRLEnv.param_test_env import ParamTestEnv
 
-SIZE = 20
+SIZE = 14
 VF_CLIP = (SIZE - 2) ** 2 * (1 - 0.2)
 
 
@@ -33,7 +33,7 @@ def main(algorithm, config):
     experiment_config['param_test']['config']['env_config'] = {'size': SIZE, }
     if args.mode == 'train':
         ray.init(object_store_memory=10000000000, redis_max_memory=10000000000, log_to_driver=True)
-        # ray.init(redis_address='141.3.81.141:6379')
+        # ray.init(redis_address='141.3.81.145:6359')
         tune.run_experiments(experiment_config)
     else:
         experiment_config['param_test']['config']['num_workers'] = 2
@@ -49,8 +49,8 @@ def main(algorithm, config):
 
 if __name__ == '__main__':
     configuration = {
-        'num_workers': 11,
-        'num_envs_per_worker': 2,
+        'num_workers': 63,
+        'num_envs_per_worker': 1,
         'num_gpus': 1,
 
         'model': {
@@ -59,7 +59,7 @@ if __name__ == '__main__':
             #     [32, [4, 4], 2],
             #     [256, [11, 11], 1],
             # ],
-            'fcnet_hiddens': [512],
+            'fcnet_hiddens': [256, 128],
             'use_lstm': False,
         },
         'vf_share_layers': True,
@@ -68,7 +68,7 @@ if __name__ == '__main__':
         'vf_clip_param': VF_CLIP,
 
         'sample_batch_size': 100,
-        'train_batch_size': 2200,
+        'train_batch_size': 6300,
         'sgd_minibatch_size': 64,
         'num_sgd_iter': 32,
 

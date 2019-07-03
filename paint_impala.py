@@ -8,15 +8,15 @@ if __name__ == '__main__':
             'fcnet_hiddens': [256, 128],
             'use_lstm': False,
         },
-        'num_workers': 31,
-        'num_gpus': 2,
+        'num_workers': 15,
+        'num_gpus': 1,
 
         'batch_mode': 'truncate_episodes',
         'observation_filter': 'NoFilter',
 
         'lr': 0.0005,
         'sample_batch_size': 50,
-        'train_batch_size': 500,
+        'train_batch_size': 750,
 
         # 'num_sgd_iter': 16,
         "num_data_loader_buffers": 4,
@@ -39,6 +39,6 @@ if __name__ == '__main__':
         'grad_clip': 40.0,
 
         'vf_loss_coeff': 0.5,
-        'entropy_coeff': -0.01,
+        'entropy_coeff': 0.01,
     }
     main('IMPALA', configuration)

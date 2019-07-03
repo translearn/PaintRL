@@ -11,8 +11,8 @@ if __name__ == '__main__':
             'fcnet_hiddens': [256, 128],
             'use_lstm': False,
         },
-        'num_workers': 10,
-        'sample_batch_size': 10,
+        'num_workers': 15,
+        'sample_batch_size': 20,
     }
     main('A3C', configuration)
 

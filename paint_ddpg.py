@@ -3,7 +3,7 @@ from paint_ppo import main
 
 if __name__ == '__main__':
     configuration = {
-        'num_workers': 27,
+        'num_workers': 15,
 
         'twin_q': True,
         'policy_delay': 2,
@@ -19,15 +19,15 @@ if __name__ == '__main__':
         'critic_hiddens': [256, 128],
 
         'timesteps_per_iteration': 1000,
-        'target_network_update_freq': 1000,
+        'target_network_update_freq': 3000,
         'tau': 1e-3,
 
         'buffer_size': 200000,
         'prioritized_replay': True,
 
         'learning_starts': 1000,
-        'sample_batch_size': 50,
-        'train_batch_size': 512,
+        'sample_batch_size': 20,
+        'train_batch_size': 32,
 
         'num_gpus': 1,
         # 'num_gpus_per_worker': 0,

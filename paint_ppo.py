@@ -93,11 +93,12 @@ def _make_env_config(is_train=True):
         env['renders'] = True
         env['with_robot'] = False
         env['rollout'] = True
-        RobotGymEnv.set_termination_mode(False)
+        RobotGymEnv.set_termination_mode('late')
+        RobotGymEnv.EPISODE_MAX_LENGTH = 300
     return env
 
 
-def _adjust_obs_action_space(obs_mode, act_shape, act_mode, act_dis_gra=18, termination_mode=False):
+def _adjust_obs_action_space(obs_mode, act_shape, act_mode, act_dis_gra=18, termination_mode='late'):
     RobotGymEnv.change_obs_mode(mode=obs_mode)
     RobotGymEnv.change_action_mode(shape=act_shape, mode=act_mode, discrete_granularity=act_dis_gra)
     RobotGymEnv.set_termination_mode(termination_mode)
@@ -121,16 +122,17 @@ def main(algorithm, config):
             'run': algorithm,
             'env': 'robot_gym_env',
             'stop': {
-                'training_iteration': 10000,
+                'training_iteration': 100000,
+                # 'timesteps_total': 2000000,
             },
             'config': config,
-            'checkpoint_freq': 100,
+            'checkpoint_freq': 200,
         }
     }
     experiment_config['paint']['config']['callbacks'] = call_backs
     if args.mode == 'train':
-        ray.init(object_store_memory=10000000000, redis_max_memory=10000000000, log_to_driver=True)
-        # ray.init(redis_address='141.3.81.141:6379')
+        ray.init(object_store_memory=10000000000, redis_max_memory=5000000000, log_to_driver=True)
+        # ray.init(redis_address="141.3.81.143:6379")
         experiment_config['paint']['config']['env_config'] = _make_env_config()
         tune.run_experiments(experiment_config)
     else:
@@ -163,6 +165,8 @@ if __name__ == '__main__':
         'batch_mode': 'truncate_episodes',
         'observation_filter': 'NoFilter',
         'vf_clip_param': 125.0,
+
+        "entropy_coeff": 0.01,
 
         'sample_batch_size': 100,
         'train_batch_size': 1500,
