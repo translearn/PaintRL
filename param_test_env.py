@@ -10,35 +10,17 @@ class Observation:
     def __init__(self, part):
         self._part = part
 
-    def reset_counters(self):
-        raise NotImplementedError
-
-    def refresh_counters(self, i, j):
-        raise NotImplementedError
-
     def get_observation(self):
         raise NotImplementedError
 
 
 class NoObservation(Observation):
 
-    def reset_counters(self):
-        pass
-
-    def refresh_counters(self, i, j):
-        pass
-
     def get_observation(self):
         return np.array([])
 
 
 class DirectObservation(Observation):
-
-    def reset_counters(self):
-        pass
-
-    def refresh_counters(self, i, j):
-        pass
 
     def get_observation(self):
         obs = np.ones((self._part.size, self._part.size))
@@ -47,35 +29,21 @@ class DirectObservation(Observation):
         return obs.reshape((self._part.size, self._part.size, 1))
 
 
-class Grid4Observation(Observation):
+class Grid2Observation(Observation):
 
     def __init__(self, part):
         Observation.__init__(self, part)
-        self._init_counter = int(self._part.init_reward_counter / 4)
-        self._counter_1 = self._counter_2 = self._counter_3 = self._counter_4 = self._init_counter
-        self.reset_counters()
-
-    def reset_counters(self):
-        self._counter_1 = self._counter_2 = self._counter_3 = self._counter_4 = self._init_counter
-
-    def refresh_counters(self, i, j):
-        if 1 <= i <= self._part.size / 2 - 1:
-            if 1 <= j <= self._part.size / 2 - 1:
-                self._counter_1 -= 1
-            elif self._part.size / 2 <= j <= self._part.size - 2:
-                self._counter_2 -= 1
-        elif self._part.size / 2 <= i <= self._part.size - 2:
-            if 1 <= j <= self._part.size / 2 - 1:
-                self._counter_3 -= 1
-            elif self._part.size / 2 <= j <= self._part.size - 2:
-                self._counter_4 -= 1
+        self._edge_set = (0, self._part.size - 1)
+        self._max_counter = int(self._part.init_reward_counter / 4)
 
     def get_observation(self):
-        part_1 = self._counter_1 / self._init_counter
-        part_2 = self._counter_2 / self._init_counter
-        part_3 = self._counter_3 / self._init_counter
-        part_4 = self._counter_4 / self._init_counter
-        return np.array([part_1, part_2, part_3, part_4])
+        obs = np.zeros((2, 2), dtype=np.float64)
+        for pos in self._part.world:
+            if pos[0] in self._edge_set or pos[1] in self._edge_set:
+                continue
+            x, y = int(pos[0] / 2 + 0.5) - 1, int(pos[1] / 2 + 0.5) - 1
+            obs[x][y] += self._part.world[pos] / self._max_counter
+        return obs.reshape((4,))
 
 
 class Grid10Observation(Observation):
@@ -83,31 +51,19 @@ class Grid10Observation(Observation):
     def __init__(self, part):
         Observation.__init__(self, part)
         self._edge_set = (0, self._part.size - 1)
-
-    def reset_counters(self):
-        pass
-
-    def refresh_counters(self, i, j):
-        pass
+        self._max_counter = int(self._part.init_reward_counter / 100)
 
     def get_observation(self):
-        max_counter = int(self._part.init_reward_counter / 100)
         obs = np.zeros((10, 10), dtype=np.float64)
         for pos in self._part.world:
             if pos[0] in self._edge_set or pos[1] in self._edge_set:
                 continue
             x, y = int(pos[0] / 2 + 0.5) - 1, int(pos[1] / 2 + 0.5) - 1
-            obs[x][y] += self._part.world[pos] / max_counter
+            obs[x][y] += self._part.world[pos] / self._max_counter
         return obs.reshape((10 ** 2,))
 
 
 class SectionObservation(Observation):
-
-    def reset_counters(self):
-        pass
-
-    def refresh_counters(self, i, j):
-        pass
 
     def get_observation(self):
         x, y = self._part.get_current_pos()
@@ -132,16 +88,18 @@ class SectionObservation(Observation):
         obs_2 = 0 if max_2 == 0 else counter_2 / max_2
         obs_3 = 0 if max_3 == 0 else counter_3 / max_3
         obs_4 = 0 if max_4 == 0 else counter_4 / max_4
+        # Invert the obs values.
         # obs_1, obs_2, obs_3, obs_4 = 1 - obs_1, 1 - obs_2, 1 - obs_3, 1 - obs_4
         return np.asarray([obs_1, obs_2, obs_3, obs_4])
 
 
 class ParamTestEnv(gym.Env):
-    OBS_MODE = 'section'
-    TERMINATION_BY_REPEAT = False
-
     reward_range = (-1e3, 1e3)
+
     action_space = spaces.Discrete(4)
+
+    OBS_MODE = 'section'
+
     if OBS_MODE == 'section':
         observation_space = spaces.Box(low=0.0, high=1.0, shape=(6,), dtype=np.float64)
     elif OBS_MODE == 'simple':
@@ -151,13 +109,9 @@ class ParamTestEnv(gym.Env):
     else:
         spaces.Box(low=0.0, high=1.0, shape=(100,), dtype=np.float64)
 
-    EPISODE_MAX_LENGTH = 900
-
-    ACTION_DEF = {0: '🠆', 1: '🠅', 2: '🠄', 3: '🠇'}
-
-    def __init__(self, size, train_mode=True):
+    def __init__(self, size, max_len=900, train_mode=True, termination_by_repeat=False):
         self.size = size
-        self.EPISODE_MAX_LENGTH = max(self.EPISODE_MAX_LENGTH, (self.size - 2) ** 2)
+        self.EPISODE_MAX_LENGTH = max(max_len, (self.size - 2) ** 2)
         self._mode = train_mode
         self.world = {}
         self.visit_table = {}
@@ -187,6 +141,8 @@ class ParamTestEnv(gym.Env):
             self._obs_handler = DirectObservation(self)
         else:
             self._obs_handler = NoObservation(self)
+        self.repeat_termination = termination_by_repeat
+        self.ACTION_DEF = {0: '🠆', 1: '🠅', 2: '🠄', 3: '🠇'}
 
     def get_current_pos(self):
         return self._i, self._j
@@ -201,7 +157,6 @@ class ParamTestEnv(gym.Env):
         self._reward_counter = self.init_reward_counter
         self._step_counter = 0
         self.world = self._init_world.copy()
-        self._obs_handler.reset_counters()
         return self._observation()
 
     def _step(self, action):
@@ -237,7 +192,7 @@ class ParamTestEnv(gym.Env):
     def _termination(self):
         if self._violated_wall or self._reward_counter <= 0 or self._step_counter >= self.EPISODE_MAX_LENGTH - 1:
             return True
-        if self._repeat_visit and self.TERMINATION_BY_REPEAT:
+        if self._repeat_visit and self.repeat_termination:
             return True
         return False
 
@@ -252,7 +207,6 @@ class ParamTestEnv(gym.Env):
         if self.world[(self._i, self._j)] > 0:
             self.world[(self._i, self._j)] -= 1
             self._reward_counter -= 1
-            self._obs_handler.refresh_counters(self._i, self._j)
             return 1
         return 0
 

@@ -16,6 +16,7 @@ from timeit import default_timer as timer
 
 
 def _get_view_matrix():
+    # Change the values, calculate the new matrix, then paste it in the render function of the env class.
     cam_target_pos = (-0.03, -0.25, 0.82)
     cam_distance = 1
     pitch = -33.60
@@ -241,7 +242,7 @@ class RobotGymEnv(gym.Env):
         self._total_reward = 0
         self._total_return = 0
         self._paint_side = p.Side.front
-        # monotone, multi-color should not be used
+        # Monotone, multi-color should not be used
         self._paint_color = (1, 0, 0)
 
         self._setup_bullet_params()
@@ -278,9 +279,10 @@ class RobotGymEnv(gym.Env):
     def _load_environment(self):
         if self._renders:
             p.loadURDF('plane.urdf', (0, 0, 0), useFixedBase=True)
-        self._part_id = p.load_part(self._renders, self.OBS_MODE, self.OBS_GRAD, self.COLOR_MODE,
-                                    os.path.join(self._urdf_root, 'urdf', 'painting', self._part_name),
-                                    (-0.4, -0.6, 0.25), useFixedBase=True, flags=p.URDF_ENABLE_SLEEPING)
+        path = os.path.join(self._urdf_root, 'urdf', 'painting', self._part_name)
+        self._part_id = p.loadURDF(path, (-0.4, -0.6, 0.25), useFixedBase=True, flags=p.URDF_ENABLE_SLEEPING)
+        p.load_part(self._part_id, self._renders, self.OBS_MODE, self.OBS_GRAD, self.COLOR_MODE, path)
+
         self._start_points = p.get_start_points(self._part_id, self._paint_side, mode=self.START_POINT_MODE)
         self.robot = Robot(self._step_manager, 'kuka_iiwa/model_free_base.urdf', pos=(0.2, -0.2, 0),
                            orn=p.getQuaternionFromEuler((0, 0, math.pi*3/2)), with_robot=self._with_robot)
@@ -290,7 +292,6 @@ class RobotGymEnv(gym.Env):
         self.reset()
 
     def _termination(self):
-        # cut the long episode to save sampling time
         self._step_counter += 1
         # self._max_possible_point = p.get_job_limit(self._part_id, self._paint_side)
         finished = False if self._max_possible_point > self._total_reward * 100 else True
@@ -324,11 +325,8 @@ class RobotGymEnv(gym.Env):
         return list(status) + list(normalized_pose)
 
     def _reward(self, succeeded_counter):
-        # current_status = p.get_job_status(self._part_id, self._paint_side, self._paint_color)
-        # reward = current_status - self._last_status
-        # Normalize the reward
+        # Rescale the reward
         reward = succeeded_counter / 100
-        # self._last_status = current_status
         self._total_reward += reward
         return reward
 
@@ -452,11 +450,11 @@ if __name__ == '__main__':
         # env.step([0])
         # env.step([0])
         # exit()
-        # for i in range(8):
-        #     env.step(i)
-        #     print(env.robot.get_angle_diff())
-        #     env.step(8 - i)
-        #     env.reset()
+        for i in range(8):
+            env.step(i)
+            print(env.robot.get_angle_diff())
+            env.step(8 - i)
+            env.reset()
         # env.step([1, 1])
         # for _ in range(20):
         #     env.step([0, 1])

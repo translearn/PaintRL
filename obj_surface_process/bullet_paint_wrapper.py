@@ -18,13 +18,6 @@ MIN_PAINT_DIAMETER = 0.025
 MAX_ANGLE_DIFF = np.pi / 3
 
 
-def _show_flange_debug_line(points):
-    # only for debug purpose, robot pose may change afterwards
-    robot_pose = getLinkState(2, 6)[0]
-    for point in points:
-        addUserDebugLine(robot_pose, point, (0, 1, 0))
-
-
 def _get_texture_image(pixels, width, height):
     pixel_array = np.reshape(np.asarray(pixels), (width, height, 3))
     img = Image.fromarray(pixel_array, 'RGB')
@@ -76,11 +69,11 @@ def _get_point_along_normal(point, length, vn):
 
 class ConvHull:
 
-    def __init__(self, v_list, side_v_dict, front_normal, principle_axes):
+    def __init__(self, v_list, side_v_dict, front_normal, principal_axes):
         self._v_list = v_list
         self._side_v_dict = side_v_dict
         self._front_normal = front_normal
-        self._principle_axes = principle_axes
+        self._principal_axes = principal_axes
         self.hull = ConvexHull(self._v_list)
         self.bary_dict = {}
 
@@ -100,7 +93,7 @@ class ConvHull:
                 if side_counter >= 2:
                     bary = BarycentricInterpolator(self._v_list[item[0]], self._v_list[item[1]], self._v_list[item[2]])
                     bary.set_face_normal(None, self._front_normal)
-                    two_d_bary = bary.get_2d_bary(self._principle_axes)
+                    two_d_bary = bary.get_2d_bary(self._principal_axes)
                     if not bary.is_in_same_side(side):
                         bary.negate_normal()
                     self.bary_dict[side].append([bary, two_d_bary])
@@ -109,7 +102,7 @@ class ConvHull:
 
     def correct_bary_normal(self, bary):
         point = bary.center_point
-        test_point = [point[self._principle_axes[0]], point[self._principle_axes[1]]]
+        test_point = [point[self._principal_axes[0]], point[self._principal_axes[1]]]
         for three_d_bary, two_d_bary in self.bary_dict[bary.get_side()]:
             if two_d_bary.is_inside_triangle(test_point):
                 if _get_included_angle(bary.get_normal(), three_d_bary.get_normal()) > MAX_ANGLE_DIFF / 2:
@@ -291,10 +284,10 @@ class BarycentricInterpolator:
         if self._ori_vn:
             self._vn = self._ori_vn
 
-    def get_2d_bary(self, principle_axes):
-        a_p = [self._a[principle_axes[0]], self._a[principle_axes[1]]]
-        b_p = [self._b[principle_axes[0]], self._b[principle_axes[1]]]
-        c_p = [self._c[principle_axes[0]], self._c[principle_axes[1]]]
+    def get_2d_bary(self, principal_axes):
+        a_p = [self._a[principal_axes[0]], self._a[principal_axes[1]]]
+        b_p = [self._b[principal_axes[0]], self._b[principal_axes[1]]]
+        c_p = [self._c[principal_axes[0]], self._c[principal_axes[1]]]
         return BarycentricInterpolator(a_p, b_p, c_p)
 
 
@@ -304,10 +297,10 @@ class TextWriter:
     line_space = 0.07
     Total_lines = 4
     """Write episode information into the bullet environment"""
-    def __init__(self, urdf_id, principle_axes, axes_ranges):
+    def __init__(self, urdf_id, principal_axes, axes_ranges):
         self._urdf_id = urdf_id
         self._text_id_buffer = []
-        self._principle_axes = principle_axes
+        self._principal_axes = principal_axes
         self._axes_ranges = axes_ranges
         self.lines = TextWriter.Total_lines
         self._base_pos = getBasePositionAndOrientation(urdf_id)[0]
@@ -317,9 +310,9 @@ class TextWriter:
             self.lines = TextWriter.Total_lines
         self.lines -= 1
         offset = list(self._base_pos)
-        offset[self._principle_axes[0]] = self._axes_ranges[0][1]
-        offset[self._principle_axes[1]] = self._axes_ranges[1][1]
-        offset[self._principle_axes[1]] += self.lines * TextWriter.line_space
+        offset[self._principal_axes[0]] = self._axes_ranges[0][1]
+        offset[self._principal_axes[1]] = self._axes_ranges[1][1]
+        offset[self._principal_axes[1]] += self.lines * TextWriter.line_space
         return offset
 
     def _write_line(self, line):
@@ -362,17 +355,17 @@ class RGBColorHandler(ColorHandler):
 
     def is_changed(self, texel, color):
         # compare only the first channel to speed up the process
-        return self._part.texture_pixels[texel] == color[0]
-        # return self._part.texture_pixels[texel] == color[0] and self._part.texture_pixels[texel + 1] == color[1] \
-        #        and self._part.texture_pixels[texel + 2] == color[2]
+        return self._part.texels[texel] == color[0]
+        # return self._part.texels[texel] == color[0] and self._part.texels[texel + 1] == color[1] \
+        #        and self._part.texels[texel + 2] == color[2]
 
     def change_pixel(self, color, i, j):
         texel = self._part.get_texel(i, j)
         if self.is_changed(texel, color):
             return 0
-        self._part.texture_pixels[texel] = color[0]
-        self._part.texture_pixels[texel + 1] = color[1]
-        self._part.texture_pixels[texel + 2] = color[2]
+        self._part.texels[texel] = color[0]
+        self._part.texels[texel + 1] = color[1]
+        self._part.texels[texel + 2] = color[2]
         return 1
 
     def change_pixels(self, side, color, center, points):
@@ -397,7 +390,7 @@ class HSIColorHandler(ColorHandler):
     debug_stack = {}
 
     def is_changed(self, texel, color):
-        return self._part.texture_pixels[texel] <= color
+        return self._part.texels[texel] <= color
 
     def change_pixel(self, color, i, j):
         """
@@ -409,10 +402,10 @@ class HSIColorHandler(ColorHandler):
         """
         texel = self._part.get_texel(i, j)
         if self.is_changed(texel, color):
-            color = max(self._part.texture_pixels[texel], 0)
-        self._part.texture_pixels[texel] -= color
-        self._part.texture_pixels[texel + 1] -= color
-        self._part.texture_pixels[texel + 2] -= color
+            color = max(self._part.texels[texel], 0)
+        self._part.texels[texel] -= color
+        self._part.texels[texel + 1] -= color
+        self._part.texels[texel + 2] -= color
         return color / 255
 
     def change_pixels(self, side, color, center, points):
@@ -436,11 +429,16 @@ class HSIColorHandler(ColorHandler):
 
 
 class Part:
+    """
+    Store the loaded urdf cache and its correspondent change texture parameters,
+    extract the pixels on the part to be painted.
+    """
+
     HOOK_DISTANCE_TO_PART = 0.1
     # Color to mark irrelevant pixels, used for preprocessing and calculate rewards
     IRRELEVANT_COLOR = (0, 0, 0)
-    # FRONT_COLOR = (0.75, 0.75, 0.75)
-    FRONT_COLOR = (1, 1, 1)
+    FRONT_COLOR = (0.75, 0.75, 0.75)
+    # FRONT_COLOR = (1, 1, 1)
     BACK_COLOR = (0, 1, 0)
     # Place holder in KD-tree, no point can have such a coordinate
     IRRELEVANT_POSE = (10, 10, 10)
@@ -449,10 +447,6 @@ class Part:
     # for the eight directions of initial painting
     MODE_SIGN = {0: [1, 0], 1: [1, -1], 2: [0, -1], 3: [-1, -1],
                  4: [-1, 0], 5: [-1, 1], 6: [0, 1], 7: [1, 1]}
-    """
-    Store the loaded urdf cache and its correspondent change texture parameters,
-    extract the pixels on the part to be painted.
-    """
 
     def __init__(self, urdf_id=-1, render=True, observation='section', obs_grad=10, color_mode='RGB'):
         self.urdf_id = urdf_id
@@ -468,7 +462,7 @@ class Part:
         self.texture_id = None
         self.texture_width = None
         self.texture_height = None
-        self.texture_pixels = None
+        self.texels = None
         self.init_texture = None
         self._start_points = {}
         self._start_pos = {}
@@ -476,8 +470,8 @@ class Part:
         self.profile_dicts = {}
         self.pixel_positions = {}
         self.pixel_kd_tree = {}
-        self.principle_axes = None
-        self.non_principle_axis = None
+        self.principal_axes = None
+        self.non_principal_axis = None
         self.ranges = None
         self.front_normal = None
         self._writer = None
@@ -527,21 +521,23 @@ class Part:
         i, j = bary.get_texel(point, self.texture_width, self.texture_height)
         return i, j, self._color_handler.change_pixel(color, i, j)
 
+    def _refresh_texture(self):
+        changeTexture(self.texture_id, self.texels, self.texture_width, self.texture_height)
+
     def slow_paint(self, points, color, side):
         color = _get_color(color)
-        current_side = side
         if not points:
             return [], 0
-        nearest_vertices = self.vertices_kd_tree[current_side].query(points, k=1)[1]
+        nearest_vertices = self.vertices_kd_tree[side].query(points, k=1)[1]
         affected_pixels = []
         succeed_counter = 0
         for i, point in enumerate(points):
-            bary = self._get_closest_bary(point, nearest_vertices[i], current_side)
+            bary = self._get_closest_bary(point, nearest_vertices[i], side)
             if bary:
                 i, j, success = self._change_texel_color(color, bary, point)
                 succeed_counter += success
                 affected_pixels.append((i, j))
-        changeTexture(self.texture_id, self.texture_pixels, self. texture_width, self.texture_height)
+        self._refresh_texture()
         affected_pixels = list(set(affected_pixels))
         valid_pixels = [pixel for pixel in affected_pixels if pixel not in self._last_painted_pixels]
         self._last_painted_pixels = affected_pixels
@@ -559,7 +555,7 @@ class Part:
             i, j = self.profile[side][index]
             succeed_counter += self._color_handler.change_pixel(color, i, j)
             affected_pixels.append((i, j))
-        changeTexture(self.texture_id, self.texture_pixels, self.texture_width, self.texture_height)
+        self._refresh_texture()
         affected_pixels = list(set(affected_pixels))
         valid_pixels = [pixel for pixel in affected_pixels if pixel not in self._last_painted_pixels]
         self._last_painted_pixels = affected_pixels
@@ -569,7 +565,7 @@ class Part:
         color = _get_color(color)
         nearest_vertices = self.pixel_kd_tree[side].query_ball_point(point, radius)
         succeed_counter, affected_pixels = self._color_handler.change_pixels(side, color, point, nearest_vertices)
-        changeTexture(self.texture_id, self.texture_pixels, self.texture_width, self.texture_height)
+        self._refresh_texture()
         valid_pixels = [pixel for pixel in affected_pixels if pixel not in self._last_painted_pixels]
         self._last_painted_pixels = affected_pixels
         return valid_pixels, succeed_counter
@@ -591,7 +587,7 @@ class Part:
                 self.color_setter.change_pixel(back_color, *point)
             for point in self.profile[Side.front]:
                 self.color_setter.change_pixel(front_color, *point)
-        # _get_texture_image(self.texture_pixels, self.texture_width, self.texture_height).show()
+        # _get_texture_image(self.texels, self.texture_width, self.texture_height).show()
         else:
             color = _get_color((0, 0, 0))
             for point in target_pixels:
@@ -620,7 +616,7 @@ class Part:
         Store relevant pixels according to its side of the part into self.profile
         Mark irrelevant pixels to IRRELEVANT_COLOR
         """
-        self._texel_limit = len(self.texture_pixels) - 4
+        self._texel_limit = len(self.texels) - 4
         for _, p_map in self.uv_map.items():
             for bary in p_map:
                 if bary.get_side():
@@ -645,11 +641,11 @@ class Part:
             del self.profile_dicts[invalid_side]
             del self.pixel_positions[invalid_side]
             self._label_part()
-            self.init_texture = self.texture_pixels.copy()
+            self.init_texture = self.texels.copy()
             self._build_kd_tree()
 
     def _correct_bary_normals_with_conv_hull(self):
-        hull = ConvHull(self.vertices, self.vertices_kd_tree, AXES[self.non_principle_axis], self.principle_axes)
+        hull = ConvHull(self.vertices, self.vertices_kd_tree, AXES[self.non_principal_axis], self.principal_axes)
         hull.separate_by_side(self.profile.keys())
         for bary in self.bary_list:
             side = bary.get_side()
@@ -705,12 +701,18 @@ class Part:
         self.bary_list[index].draw_face_normal()
 
     def reset_part(self, side, color, percent, mode, with_start_point=False):
-        self.texture_pixels = self.init_texture.copy()
+        self.texels = self.init_texture.copy()
         self._last_painted_pixels = []
         if with_start_point:
             return self.initialize_texture(side, color, percent, mode, with_start_point)
         else:
             return None
+
+    def set_texture_info(self, t_id, width, height, texels):
+        self.texture_id = t_id
+        self.texture_width = width
+        self.texture_height = height
+        self.texels = texels
 
     def get_texture_size(self):
         return self.texture_width, self.texture_height
@@ -731,7 +733,7 @@ class Part:
         return len(self.profile[side])
 
     def get_texture_image(self):
-        return _get_texture_image(self.texture_pixels, self.texture_width, self.texture_height)
+        return _get_texture_image(self.texels, self.texture_width, self.texture_height)
 
     def set_start_points(self, corner_points):
         for side in VALID_SIDE:
@@ -754,16 +756,16 @@ class Part:
         :return: start points
         """
         start_points = []
-        axis_2_value = [item[0][self.principle_axes[1]] for item in self._start_points[side]]
+        axis_2_value = [item[0][self.principal_axes[1]] for item in self._start_points[side]]
         axis_2_max, axis_2_min = max(axis_2_value), min(axis_2_value)
         for bary in self.bary_list:
             if bary.is_in_same_side(side) and bary.area_valid:
                 center_point, hook_point = bary.get_face_guide_point(self.HOOK_DISTANCE_TO_PART)
-                grid_index = self._get_grid_index_2(center_point[self.principle_axes[1]])
+                grid_index = self._get_grid_index_2(center_point[self.principal_axes[1]])
                 grid_range = self.grid_dict[side][grid_index]
-                if center_point[self.principle_axes[0]] - grid_range[0] >= MIN_PAINT_DIAMETER and \
-                        grid_range[1] - center_point[self.principle_axes[0]] >= MIN_PAINT_DIAMETER and \
-                        axis_2_min <= center_point[self.principle_axes[1]] <= axis_2_max:
+                if center_point[self.principal_axes[0]] - grid_range[0] >= MIN_PAINT_DIAMETER and \
+                        grid_range[1] - center_point[self.principal_axes[0]] >= MIN_PAINT_DIAMETER and \
+                        axis_2_min <= center_point[self.principal_axes[1]] <= axis_2_max:
                     orn = [-i for i in bary.get_normal()]
                     start_points.append([hook_point, orn])
                     # bary.add_debug_info()
@@ -782,7 +784,7 @@ class Part:
         point_grids = {}
         start_points = []
         for point, orn in points:
-            grid_index = self._get_grid_index_2(point[self.principle_axes[1]])
+            grid_index = self._get_grid_index_2(point[self.principal_axes[1]])
             if grid_index not in point_grids:
                 point_grids[grid_index] = []
             point_grids[grid_index].append([point, orn])
@@ -793,12 +795,12 @@ class Part:
             if index in (max_grid_index, min_grid_index):
                 start_points.extend(point_grids[index])
             else:
-                sorted_points = sorted(point_grids[index], key=lambda v: v[0][self.principle_axes[0]])
+                sorted_points = sorted(point_grids[index], key=lambda v: v[0][self.principal_axes[0]])
                 # filter out the fake edge points, set the threshold to 15% the range
-                x_val = sorted_points[0][0][self.principle_axes[0]]
+                x_val = sorted_points[0][0][self.principal_axes[0]]
                 if (x_val - self.grid_dict[side][index][0]) / self.grid_range[side][index] < 0.15:
                     start_points.append(sorted_points[0])
-                x_val = sorted_points[-1][0][self.principle_axes[0]]
+                x_val = sorted_points[-1][0][self.principal_axes[0]]
                 if (self.grid_dict[side][index][1] - x_val) / self.grid_range[side][index] < 0.15:
                     start_points.append(sorted_points[-1])
 
@@ -811,7 +813,7 @@ class Part:
 
     def post_setup(self):
         self._length_width_ratio = (self.ranges[0][1] - self.ranges[0][0]) / (self.ranges[1][1] - self.ranges[1][0])
-        self._writer = TextWriter(self.urdf_id, self.principle_axes, self.ranges)
+        self._writer = TextWriter(self.urdf_id, self.principal_axes, self.ranges)
         self._set_grid_dict()
         self._correct_bary_normals()
 
@@ -834,7 +836,7 @@ class Part:
             area_size += step_size * grid_size_x
         return len(self.profile[side]) / area_size
 
-    def set_ranges_along_principle(self, ranges):
+    def set_ranges_along_principal(self, ranges):
         self.ranges = ranges
 
     def _get_grid_index_2(self, val_axis_2):
@@ -847,9 +849,9 @@ class Part:
         return grid_index
 
     def _get_delta_1(self, point, side, delta_axis1, delta_axis2):
-        """Calculate delta 1 according to the principle 1 range size"""
-        old_val_axis_2 = point[self.principle_axes[1]]
-        val_axis_2 = point[self.principle_axes[1]] + delta_axis2
+        """Calculate delta 1 according to the principal 1 range size"""
+        old_val_axis_2 = point[self.principal_axes[1]]
+        val_axis_2 = point[self.principal_axes[1]] + delta_axis2
         old_grid_index, grid_index = self._get_grid_index_2(old_val_axis_2), self._get_grid_index_2(val_axis_2)
         if grid_index >= old_grid_index:
             grid_ranges = [self.grid_range[side][i] for i in range(old_grid_index, grid_index + 1)]
@@ -865,8 +867,8 @@ class Part:
         delta_2 = delta_axis2 * self._length_width_ratio
         # delta_1 = self._get_delta_1(point, current_side, delta_axis1, delta_2)
         delta_1 = delta_axis1
-        point[self.principle_axes[0]] += delta_1
-        point[self.principle_axes[1]] += delta_2
+        point[self.principal_axes[0]] += delta_1
+        point[self.principal_axes[1]] += delta_2
         end_point = [a + b for a, b in zip(point, normal)]
         result = rayTestBatch([point], [end_point])
         if not result[0][0] == self.urdf_id:
@@ -907,7 +909,7 @@ class Part:
             return None
 
     def _get_exact_boundary(self, point, is_min=True):
-        proof_axis = self.principle_axes[0]
+        proof_axis = self.principal_axes[0]
         step_size = -1e-3 if is_min else 1e-3
         steps_range = int((self.ranges[0][1] - self.ranges[0][0]) / abs(step_size))
         start_point, end_point = list(point), list(point)
@@ -915,8 +917,8 @@ class Part:
             current_boundary = point[proof_axis] + i * step_size
             start_point[proof_axis] = current_boundary
             end_point[proof_axis] = current_boundary
-            start_point[self.non_principle_axis] -= 1
-            end_point[self.non_principle_axis] += 1
+            start_point[self.non_principal_axis] -= 1
+            end_point[self.non_principal_axis] += 1
             # addUserDebugLine(start_point, end_point, (1, 0, 0))
             result = rayTestBatch([start_point], [end_point])
             if not result[0][0] == self.urdf_id:
@@ -925,7 +927,7 @@ class Part:
     def _set_grid_dict(self):
         for side in self.profile:
             grid_dict = {}
-            axis_1, axis_2 = self.principle_axes[0], self.principle_axes[1]
+            axis_1, axis_2 = self.principal_axes[0], self.principal_axes[1]
             sorted_list = sorted(self.vertices_kd_tree[side].data, key=lambda v: v[axis_2])
             sorted_list = [item for item in sorted_list if item[0] != self.IRRELEVANT_POSE[0]]
             traverse_index = 0
@@ -966,8 +968,8 @@ class Part:
             self._max_grid_size[side] = max(self.grid_range[side].values())
 
     def get_normalized_pose(self, side, pose, radius=0.05):
-        axis1_real = pose[self.principle_axes[0]]
-        axis2_real = pose[self.principle_axes[1]]
+        axis1_real = pose[self.principal_axes[0]]
+        axis2_real = pose[self.principal_axes[1]]
         axis2_in_range = (axis2_real - self.ranges[1][0] + radius) / (self.ranges[1][1] -
                                                                       self.ranges[1][0] + 2 * radius)
         grid_index = self._get_grid_index_2(axis2_real)
@@ -1028,8 +1030,8 @@ class SectionObservation(Observation):
     #     result = np.zeros(self.section, dtype=np.float64)
     #     basis = 2 * np.pi / self.section
     #     for pixel, coordinate in self._part.profile_dicts[side].items():
-    #         relative_x = coordinate[self._part.principle_axes[0]] - pose[self._part.principle_axes[0]]
-    #         relative_y = coordinate[self._part.principle_axes[1]] - pose[self._part.principle_axes[1]]
+    #         relative_x = coordinate[self._part.principal_axes[0]] - pose[self._part.principal_axes[0]]
+    #         relative_y = coordinate[self._part.principal_axes[1]] - pose[self._part.principal_axes[1]]
     #         if relative_x == 0 and relative_y == 0:
     #             continue
     #         angle = np.arctan2(relative_y, relative_x)
@@ -1051,8 +1053,8 @@ class SectionObservation(Observation):
         obs_1 = obs_2 = obs_3 = obs_4 = 0
         counter_1 = counter_2 = counter_3 = counter_4 = 0
         for pixel, coordinate in self._part.profile_dicts[side].items():
-            relative_x = coordinate[self._part.principle_axes[0]] - pose[self._part.principle_axes[0]]
-            relative_y = coordinate[self._part.principle_axes[1]] - pose[self._part.principle_axes[1]]
+            relative_x = coordinate[self._part.principal_axes[0]] - pose[self._part.principal_axes[0]]
+            relative_y = coordinate[self._part.principal_axes[1]] - pose[self._part.principal_axes[1]]
             valid = 1 if not self._part.get_pixel_status(pixel, color) else 0
             if relative_x == 0 and relative_y == 0:
                 continue
@@ -1091,12 +1093,12 @@ class GridObservation(Observation):
             for pixel in self._part.profile_dicts[profile_dict]:
                 space_locate = self._part.profile_dicts[profile_dict][pixel]
                 y_grid = min(self._v_granularity - 1,
-                             int((space_locate[self._part.principle_axes[1]] - self._part.ranges[1][0]) / axis_2_step))
+                             int((space_locate[self._part.principal_axes[1]] - self._part.ranges[1][0]) / axis_2_step))
                 if self._part.grid_range[profile_dict][y_grid] == 0:
                     x_grid = 0
                 else:
                     x_step = self._part.grid_range[profile_dict][y_grid] / self._h_granularity
-                    x_grid = min(self._h_granularity - 1, int((space_locate[self._part.principle_axes[0]] -
+                    x_grid = min(self._h_granularity - 1, int((space_locate[self._part.principal_axes[0]] -
                                                                self._part.grid_dict[profile_dict][y_grid][0]) / x_step))
                 if y_grid not in grid_pixels[profile_dict]:
                     grid_pixels[profile_dict][y_grid] = {}
@@ -1191,20 +1193,6 @@ def _retrieve_related_file_path(file_path):
             return None, None
     else:
         return None, None
-
-
-def _cache_texture(urdf_obj, obj_path, texture_path):
-    with Image.open(texture_path) as img:
-        width, height = img.size
-        pixels = list(np.asarray(img.convert('RGB')).ravel())
-        texture_id = loadTexture(texture_path)
-        urdf_obj.texture_id = texture_id
-        urdf_obj.texture_pixels = pixels
-        urdf_obj.texture_width = width
-        urdf_obj.texture_height = height
-        # after this operation, the texture could be changed by override the color values in pixels
-        changeVisualShape(urdf_obj.urdf_id, -1, textureUniqueId=texture_id)
-        _cache_obj(urdf_obj, obj_path)
 
 
 def _get_global_coordinate(urdf_id, points):
@@ -1302,73 +1290,83 @@ def _get_coordinate_range(v_array, col_num):
     return max(col) - min(col)
 
 
-def _get_corner_points_ranges(v_array, principle_axes):
+def _get_corner_points_ranges(v_array,  principal_axes):
     points = []
     ranges = []
-    v_corner = sorted(v_array, key=lambda tup: tup[principle_axes[0]] + tup[principle_axes[1]])
+    v_corner = sorted(v_array, key=lambda tup: tup[principal_axes[0]] + tup[principal_axes[1]])
     v_corner_0 = list(v_corner[0])
-    v_corner_0[principle_axes[0]] += MIN_PAINT_DIAMETER
-    v_corner_0[principle_axes[1]] += MIN_PAINT_DIAMETER
+    v_corner_0[principal_axes[0]] += MIN_PAINT_DIAMETER
+    v_corner_0[principal_axes[1]] += MIN_PAINT_DIAMETER
     points.append(v_corner_0)
     v_corner_m1 = list(v_corner[-1])
-    v_corner_m1[principle_axes[0]] -= MIN_PAINT_DIAMETER
-    v_corner_m1[principle_axes[1]] -= MIN_PAINT_DIAMETER
+    v_corner_m1[principal_axes[0]] -= MIN_PAINT_DIAMETER
+    v_corner_m1[principal_axes[1]] -= MIN_PAINT_DIAMETER
     points.append(v_corner_m1)
-    v_counter_corner = sorted(v_array, key=lambda tup: tup[principle_axes[0]] - tup[principle_axes[1]])
+    v_counter_corner = sorted(v_array, key=lambda tup: tup[principal_axes[0]] - tup[principal_axes[1]])
     v_counter_corner_0 = list(v_counter_corner[0])
-    v_counter_corner_0[principle_axes[0]] += MIN_PAINT_DIAMETER
-    v_counter_corner_0[principle_axes[1]] -= MIN_PAINT_DIAMETER
+    v_counter_corner_0[principal_axes[0]] += MIN_PAINT_DIAMETER
+    v_counter_corner_0[principal_axes[1]] -= MIN_PAINT_DIAMETER
     points.append(v_counter_corner_0)
     v_counter_corner_m1 = list(v_counter_corner[-1])
-    v_counter_corner_m1[principle_axes[0]] -= MIN_PAINT_DIAMETER
-    v_counter_corner_m1[principle_axes[1]] += MIN_PAINT_DIAMETER
+    v_counter_corner_m1[principal_axes[0]] -= MIN_PAINT_DIAMETER
+    v_counter_corner_m1[principal_axes[1]] += MIN_PAINT_DIAMETER
     points.append(v_counter_corner_m1)
-    v_range_1 = sorted(v_array, key=lambda tup: tup[principle_axes[0]])
-    v_range_2 = sorted(v_array, key=lambda tup: tup[principle_axes[1]])
-    ranges.append([v_range_1[0][principle_axes[0]], v_range_1[-1][principle_axes[0]]])
-    ranges.append([v_range_2[0][principle_axes[1]], v_range_2[-1][principle_axes[1]]])
+    v_range_1 = sorted(v_array, key=lambda tup: tup[principal_axes[0]])
+    v_range_2 = sorted(v_array, key=lambda tup: tup[principal_axes[1]])
+    ranges.append([v_range_1[0][principal_axes[0]], v_range_1[-1][principal_axes[0]]])
+    ranges.append([v_range_2[0][principal_axes[1]], v_range_2[-1][principal_axes[1]]])
     return points, ranges
 
 
-def _get_principle_axes(v_array):
+def _get_principal_axes(v_array):
     ranges = [_get_coordinate_range(v_array, i) for i in range(3)]
     axes = [i for i in range(3)]
-    principle_axes = [i for i in axes if i != ranges.index(min(ranges))]
-    non_principle_axis = [i for i in axes if i not in principle_axes]
-    return principle_axes, non_principle_axis[0]
+    principal_axes = [i for i in axes if i != ranges.index(min(ranges))]
+    non_principal_axis = [i for i in axes if i not in principal_axes]
+    return principal_axes, non_principal_axis[0]
 
 
 def _cache_obj(urdf_obj, obj_path):
     with open(obj_path, mode='r') as f:
         v_array, vn_array, vt_array = _retrieve_obj_elements(f)
         global_v_array = _get_global_coordinate(urdf_obj.urdf_id, v_array)
-        urdf_obj.principle_axes, urdf_obj.non_principle_axis = _get_principle_axes(global_v_array)
-        urdf_obj.front_normal = AXES[urdf_obj.non_principle_axis]
+        urdf_obj.principal_axes, urdf_obj.non_principal_axis = _get_principal_axes(global_v_array)
+        urdf_obj.front_normal = AXES[urdf_obj.non_principal_axis]
         bary_list, uv_map = _get_uv_map(f, global_v_array, vt_array, vn_array, urdf_obj.front_normal)
         urdf_obj.vertices = global_v_array
         urdf_obj.uv_map = uv_map
         urdf_obj.bary_list = bary_list
         urdf_obj.preprocess()
-        corner_points, ranges = _get_corner_points_ranges(global_v_array, urdf_obj.principle_axes)
+        corner_points, ranges = _get_corner_points_ranges(global_v_array, urdf_obj.principal_axes)
         urdf_obj.set_start_points(corner_points)
-        urdf_obj.set_ranges_along_principle(ranges)
+        urdf_obj.set_ranges_along_principal(ranges)
         urdf_obj.post_setup()
 
 
-def load_part(*args, **kwargs):
+def _cache_texture(urdf_obj, obj_path, texture_path):
+    with Image.open(texture_path) as img:
+        width, height = img.size
+        pixels = list(np.asarray(img.convert('RGB')).ravel())
+        texture_id = loadTexture(texture_path)
+        urdf_obj.set_texture_info(texture_id, width, height, pixels)
+        # urdf_obj.texture_id = texture_id
+        # urdf_obj.texels = pixels
+        # urdf_obj.texture_width = width
+        # urdf_obj.texture_height = height
+        # after this operation, the texture could be changed by overriding the color values in pixels
+        changeVisualShape(urdf_obj.urdf_id, -1, textureUniqueId=texture_id)
+        _cache_obj(urdf_obj, obj_path)
+
+
+def load_part(urdf_id, render, obs_mode, obs_grad, color_mode, path):
     try:
-        path = args[4]
-        u_id = loadURDF(*args[4:], **kwargs)
         obj_file_path, texture_file_path = _retrieve_related_file_path(path)
-        # Texture file exists, prepare for texture manipulation
-        if texture_file_path:
-            part = Part(u_id, *args[0:4])
-            _urdf_cache[u_id] = part
-            _cache_texture(part, obj_file_path, texture_file_path)
-        return u_id
+        if not texture_file_path:
+            raise FileNotFoundError('Make sure that the .obj file is processed by Blender!')
+        _urdf_cache[urdf_id] = Part(urdf_id, render, obs_mode, obs_grad, color_mode)
+        _cache_texture(_urdf_cache[urdf_id], obj_file_path, texture_file_path)
     except error as e:
         print(str(e))
-        return -1
 
 
 def paint(urdf_id, points, color, side):
@@ -1384,10 +1382,12 @@ def paint(urdf_id, points, color, side):
 
 
 def fast_paint(urdf_id, point, radius, color, side):
+    """kd-tree method, support better pseudo-HSI color handler"""
     return _urdf_cache[urdf_id].fast_paint(point, radius, color, side)
 
 
 def slow_paint(urdf_id, point, color, side):
+    """Preserved for performance comparison"""
     return _urdf_cache[urdf_id].slow_paint(point, color, side)
 
 
