@@ -1,3 +1,0 @@
-[submodule "PaintRLEnv"]
-	path = PaintRLEnv
-	url = git@gitlab.ipr.kit.edu:upxcq/PaintRLEnv.git
