@@ -4,9 +4,6 @@ import ray.tune as tune
 from ray.rllib.rollout import run
 from PaintRLEnv.param_test_env import ParamTestEnv
 
-SIZE = 14
-VF_CLIP = (SIZE - 2) ** 2 * (1 - 0.2)
-
 
 def main(algorithm, config):
     parser = argparse.ArgumentParser()
@@ -30,9 +27,8 @@ def main(algorithm, config):
             'checkpoint_freq': 200,
         }
     }
-    experiment_config['param_test']['config']['env_config'] = {'size': SIZE, }
     if args.mode == 'train':
-        ray.init(object_store_memory=10000000000, redis_max_memory=10000000000, log_to_driver=True)
+        ray.init(object_store_memory=10000000000, redis_max_memory=5000000000, log_to_driver=True)
         # ray.init(redis_address='141.3.81.145:6359')
         tune.run_experiments(experiment_config)
     else:
@@ -48,8 +44,9 @@ def main(algorithm, config):
 
 
 if __name__ == '__main__':
+    env_params = {'size': 14, 'max_len': 900, 'termination_by_repeat': False}
     configuration = {
-        'num_workers': 63,
+        'num_workers': 5,
         'num_envs_per_worker': 1,
         'num_gpus': 1,
 
@@ -65,7 +62,7 @@ if __name__ == '__main__':
         'vf_share_layers': True,
         'batch_mode': 'truncate_episodes',
         'observation_filter': 'NoFilter',
-        'vf_clip_param': VF_CLIP,
+        'vf_clip_param': (env_params['size'] - 2) ** 2 * (1 - 0.2),
 
         'sample_batch_size': 100,
         'train_batch_size': 6300,
@@ -80,5 +77,6 @@ if __name__ == '__main__':
         # 'clip_param': 0.1,
         # 'entropy_coeff': 0.01,
 
+        'env_config': env_params,
     }
     main('PPO', configuration)
