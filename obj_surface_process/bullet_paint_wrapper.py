@@ -210,6 +210,9 @@ class BarycentricInterpolator:
         self._vn = vn
         # normal could be recalculated or just use the value from obj file, here recalculated
         self.align_normal()
+        self.set_side(front_normal)
+
+    def set_side(self, front_normal):
         self._side = _get_side(self._vn, front_normal)
 
     def is_in_same_side(self, side):
@@ -302,22 +305,22 @@ class TextWriter:
         self._text_id_buffer = []
         self._principal_axes = principal_axes
         self._axes_ranges = axes_ranges
-        self.lines = TextWriter.Total_lines
+        self.lines = self.Total_lines
         self._base_pos = getBasePositionAndOrientation(urdf_id)[0]
 
     def _get_pos(self):
         if self.lines == 0:
-            self.lines = TextWriter.Total_lines
+            self.lines = self.Total_lines
         self.lines -= 1
         offset = list(self._base_pos)
         offset[self._principal_axes[0]] = self._axes_ranges[0][1]
         offset[self._principal_axes[1]] = self._axes_ranges[1][1]
-        offset[self._principal_axes[1]] += self.lines * TextWriter.line_space
+        offset[self._principal_axes[1]] += self.lines * self.line_space
         return offset
 
     def _write_line(self, line):
-        text_id = addUserDebugText(line, self._get_pos(), textColorRGB=TextWriter.text_color,
-                                   textSize=TextWriter.text_size)
+        text_id = addUserDebugText(line, self._get_pos(), textColorRGB=self.text_color,
+                                   textSize=self.text_size)
         self._text_id_buffer.append(text_id)
 
     def _delete_old_info(self):
@@ -440,7 +443,7 @@ class Part:
     FRONT_COLOR = (0.75, 0.75, 0.75)
     # FRONT_COLOR = (1, 1, 1)
     BACK_COLOR = (0, 1, 0)
-    # Place holder in KD-tree, no point can have such a coordinate
+    # Placeholder in the kd-tree, no point can have such a coordinate
     IRRELEVANT_POSE = (10, 10, 10)
     # Refine the feedback of the end effector pose to grid representation, prevent part overfitting
     GRID_GRANULARITY = 100
@@ -525,6 +528,7 @@ class Part:
         changeTexture(self.texture_id, self.texels, self.texture_width, self.texture_height)
 
     def slow_paint(self, points, color, side):
+        """Only for performance comparison, don't use."""
         color = _get_color(color)
         if not points:
             return [], 0
@@ -545,7 +549,6 @@ class Part:
 
     def paint(self, points, color, side):
         color = _get_color(color)
-        # no intersection then no paint
         if not points:
             return [], 0
         nearest_vertices = self.pixel_kd_tree[side].query(points, k=1)[1]
@@ -594,10 +597,14 @@ class Part:
                 self.color_setter.change_pixel(color, *point)
 
     def _build_kd_tree(self):
+        """
+        Split the points according to the side of the part by marking the pixels
+        which does not belongs to current side to IRRELEVANT_COLOR
+        """
         side_label = {}
         point_list = {}
         for side in self.profile:
-            point_list[side] = [i for i in self.vertices]
+            point_list[side] = self.vertices.copy()
 
         for key, p_map in self.uv_map.items():
             for side in self.profile:
@@ -607,28 +614,24 @@ class Part:
             for side, label in side_label.items():
                 if not label:
                     point_list[side][key] = self.IRRELEVANT_POSE
+
         for side in self.profile:
             self.vertices_kd_tree[side] = cKDTree(point_list[side])
             self.pixel_kd_tree[side] = cKDTree(self.pixel_positions[side])
 
     def preprocess(self):
-        """
-        Store relevant pixels according to its side of the part into self.profile
-        Mark irrelevant pixels to IRRELEVANT_COLOR
-        """
+        """Store relevant pixels according to its side of the part into self.profile"""
         self._texel_limit = len(self.texels) - 4
-        for _, p_map in self.uv_map.items():
-            for bary in p_map:
-                if bary.get_side():
-                    pixels, pixel_dict = bary.get_uv_pixels(self.texture_width, self.texture_height)
-                    # bary.add_debug_info()
-                    side = bary.get_side()
-                    if side not in self.profile:
-                        self.profile[side] = []
-                        self.profile_dicts[side] = {}
-                        self.pixel_positions[side] = []
-                    self.profile[side].extend(pixels)
-                    self.profile_dicts[side].update(pixel_dict)
+        for bary in self.bary_list:
+            if bary.get_side():
+                pixels, pixel_dict = bary.get_uv_pixels(self.texture_width, self.texture_height)
+                side = bary.get_side()
+                if side not in self.profile:
+                    self.profile[side] = []
+                    self.profile_dicts[side] = {}
+                    self.pixel_positions[side] = []
+                self.profile[side].extend(pixels)
+                self.profile_dicts[side].update(pixel_dict)
         if self.profile:
             invalid_side = None
             for side in self.profile:
@@ -1197,11 +1200,11 @@ def _retrieve_related_file_path(file_path):
 
 def _get_global_coordinate(urdf_id, points):
     base_pose, base_orn = getBasePositionAndOrientation(urdf_id)
-    local_points = []
+    global_points = []
     for point in points:
         pose, _ = multiplyTransforms(base_pose, base_orn, point, (0, 0, 0, 1))
-        local_points.append(pose)
-    return local_points
+        global_points.append(pose)
+    return global_points
 
 
 def _get_coordinate_from_line(content, v_array):
@@ -1215,18 +1218,15 @@ def _retrieve_obj_elements(file):
     file.seek(0)
     v_array = []
     vt_array = []
-    vn_array = []
     for line in file:
         content = line.split()
-        if not len(content):
+        if not len(content) or content[0] == 'vn':
             continue
         if content[0] == 'v':
             _get_coordinate_from_line(content, v_array)
         elif content[0] == 'vt':
             vt_array.append([float(content[1]), 1 - float(content[2])])
-        elif content[0] == 'vn':
-            _get_coordinate_from_line(content, vn_array)
-    return v_array, vn_array, vt_array
+    return v_array, vt_array
 
 
 def _get_included_angle(a, b):
@@ -1253,7 +1253,7 @@ def _get_side(front_normal, v):
     return Side.other
 
 
-def _get_uv_map(file, v_array, vt_array, vn_array, front_normal):
+def _get_uv_map(file, v_array, vt_array, front_normal):
     file.seek(0)
     uv_map = {}
     bary_list = []
@@ -1265,29 +1265,16 @@ def _get_uv_map(file, v_array, vt_array, vn_array, front_normal):
             triangle_point_indexes = [int(i.split('/')[0]) - 1 for i in content[1:]]
             v_coordinates = [v_array[i] for i in triangle_point_indexes]
             uv_coordinates = [vt_array[int(i.split('/')[1]) - 1] for i in content[1:]]
-            bary_interpolator = BarycentricInterpolator(*v_coordinates)
-            bary_interpolator.set_uv_coordinate(*uv_coordinates)
-            vn_index = [int(i.split('/')[2]) - 1 for i in content[1:] if len(i.split('/')) >= 3]
-            if vn_index:
-                if vn_index[0] == vn_index[1] == vn_index[2]:
-                    vn_normal = vn_array[vn_index[0]]
-                else:
-                    vn_normal = [(a + b + c) / 3 for a, b, c in zip(vn_array[vn_index[0]],
-                                                                    vn_array[vn_index[1]], vn_array[vn_index[2]])]
-                    norm = np.linalg.norm(vn_normal)
-                    vn_normal = [i / norm for i in vn_normal]
-                bary_interpolator.set_face_normal(vn_normal, front_normal)
-                bary_list.append(bary_interpolator)
+            bary = BarycentricInterpolator(*v_coordinates)
+            bary.set_uv_coordinate(*uv_coordinates)
+            bary.align_normal()
+            bary.set_side(front_normal)
+            bary_list.append(bary)
             for v_index in triangle_point_indexes:
                 if v_index not in uv_map:
                     uv_map[v_index] = []
-                uv_map[v_index].append(bary_interpolator)
+                uv_map[v_index].append(bary)
     return bary_list, uv_map
-
-
-def _get_coordinate_range(v_array, col_num):
-    col = [i[col_num] for i in v_array]
-    return max(col) - min(col)
 
 
 def _get_corner_points_ranges(v_array,  principal_axes):
@@ -1318,21 +1305,28 @@ def _get_corner_points_ranges(v_array,  principal_axes):
     return points, ranges
 
 
+def _get_coordinate_range(v_array, col_num):
+    col = [i[col_num] for i in v_array]
+    return max(col) - min(col)
+
+
 def _get_principal_axes(v_array):
-    ranges = [_get_coordinate_range(v_array, i) for i in range(3)]
-    axes = [i for i in range(3)]
-    principal_axes = [i for i in axes if i != ranges.index(min(ranges))]
-    non_principal_axis = [i for i in axes if i not in principal_axes]
-    return principal_axes, non_principal_axis[0]
+    # TODO: Refactor the principle axes to the plane perpendicular to the principal plane
+    # Instead of dropping the coordinate of one direction.
+    dimension = len(v_array[-1])
+    ranges = [_get_coordinate_range(v_array, i) for i in range(dimension)]
+    non_principal_axis = ranges.index(min(ranges))
+    principal_axes = [i for i in range(dimension) if i != non_principal_axis]
+    return principal_axes, non_principal_axis
 
 
 def _cache_obj(urdf_obj, obj_path):
     with open(obj_path, mode='r') as f:
-        v_array, vn_array, vt_array = _retrieve_obj_elements(f)
+        v_array, vt_array = _retrieve_obj_elements(f)
         global_v_array = _get_global_coordinate(urdf_obj.urdf_id, v_array)
         urdf_obj.principal_axes, urdf_obj.non_principal_axis = _get_principal_axes(global_v_array)
         urdf_obj.front_normal = AXES[urdf_obj.non_principal_axis]
-        bary_list, uv_map = _get_uv_map(f, global_v_array, vt_array, vn_array, urdf_obj.front_normal)
+        bary_list, uv_map = _get_uv_map(f, global_v_array, vt_array, urdf_obj.front_normal)
         urdf_obj.vertices = global_v_array
         urdf_obj.uv_map = uv_map
         urdf_obj.bary_list = bary_list
@@ -1349,11 +1343,7 @@ def _cache_texture(urdf_obj, obj_path, texture_path):
         pixels = list(np.asarray(img.convert('RGB')).ravel())
         texture_id = loadTexture(texture_path)
         urdf_obj.set_texture_info(texture_id, width, height, pixels)
-        # urdf_obj.texture_id = texture_id
-        # urdf_obj.texels = pixels
-        # urdf_obj.texture_width = width
-        # urdf_obj.texture_height = height
-        # after this operation, the texture could be changed by overriding the color values in pixels
+        # After this operation, the texture could be replaced after overridden the color values in pixels
         changeVisualShape(urdf_obj.urdf_id, -1, textureUniqueId=texture_id)
         _cache_obj(urdf_obj, obj_path)
 
