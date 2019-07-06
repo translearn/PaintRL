@@ -314,7 +314,7 @@ class RobotGymEnv(gym.Env):
         normalized_pose = p.get_normalized_pose(self._part_id, self._paint_side, pose, radius=0.051)
         if self.OBS_MODE == 'simple':
             return list(normalized_pose)
-        status = p.get_partial_observation(self._part_id, self._paint_side, self._paint_color, pose)
+        status = p.get_observation(self._part_id, self._paint_side, self._paint_color, pose)
         if self.OBS_MODE == 'grid':
             return status
         elif self.OBS_MODE == 'discrete':

@@ -13,9 +13,6 @@ from PIL import Image
 from scipy.spatial import cKDTree, ConvexHull, minkowski_distance
 
 _urdf_cache = {}
-AXES = [(1, 0, 0), (0, 1, 0), (0, 0, 1)]
-MIN_PAINT_DIAMETER = 0.025
-MAX_ANGLE_DIFF = np.pi / 3
 
 
 def _get_texture_image(pixels, width, height):
@@ -44,6 +41,12 @@ def normalize(v, tolerance=0.00001):
     return v
 
 
+class PaintToolProfile:
+    """The profile of the paint gun, static"""
+    PAINT_DIAMETER = 0.051
+    STEP_SIZE = PAINT_DIAMETER
+
+
 class Side(enum.Enum):
     """First define only two sides for each part"""
     front = 1
@@ -68,6 +71,7 @@ def _get_point_along_normal(point, length, vn):
 
 
 class ConvHull:
+    CORRECT_THRESHOLD = np.pi / 6
 
     def __init__(self, v_list, side_v_dict, front_normal, principal_axes):
         self._v_list = v_list
@@ -105,7 +109,7 @@ class ConvHull:
         test_point = [point[self._principal_axes[0]], point[self._principal_axes[1]]]
         for three_d_bary, two_d_bary in self.bary_dict[bary.get_side()]:
             if two_d_bary.is_inside_triangle(test_point):
-                if _get_included_angle(bary.get_normal(), three_d_bary.get_normal()) > MAX_ANGLE_DIFF / 2:
+                if _get_included_angle(bary.get_normal(), three_d_bary.get_normal()) > self.CORRECT_THRESHOLD:
                     # if bary.is_in_same_side(Side.front):
                     #     bary.add_debug_info()
                     #     bary.draw_face_normal()
@@ -489,6 +493,13 @@ class Part:
         self.color_setter = RGBColorHandler(self)
         self._color_handler = None
 
+    def set_axes(self, principal_axes, non_principal_axis):
+        self.principal_axes, self.non_principal_axis = principal_axes, non_principal_axis
+        self.front_normal = [1 if i == self.non_principal_axis else 0 for i in range(3)]
+
+    def set_retrieved_info(self, vertices, bary_list, uv_map):
+        self.vertices, self.bary_list, self.uv_map = vertices, bary_list, uv_map
+
     def get_texel(self, i, j):
         return min((i + j * self.texture_width) * 3, self._texel_limit)
 
@@ -528,7 +539,7 @@ class Part:
         changeTexture(self.texture_id, self.texels, self.texture_width, self.texture_height)
 
     def slow_paint(self, points, color, side):
-        """Only for performance comparison, don't use."""
+        """Only for performance comparison, do not use this method."""
         color = _get_color(color)
         if not points:
             return [], 0
@@ -648,7 +659,7 @@ class Part:
             self._build_kd_tree()
 
     def _correct_bary_normals_with_conv_hull(self):
-        hull = ConvHull(self.vertices, self.vertices_kd_tree, AXES[self.non_principal_axis], self.principal_axes)
+        hull = ConvHull(self.vertices, self.vertices_kd_tree, self.front_normal, self.principal_axes)
         hull.separate_by_side(self.profile.keys())
         for bary in self.bary_list:
             side = bary.get_side()
@@ -675,7 +686,7 @@ class Part:
                         if self.bary_list[b] is bary:
                             continue
                         normal_angle = _get_included_angle(self.bary_list[b].get_normal(), bary.get_normal())
-                        if abs(normal_angle) > MAX_ANGLE_DIFF / 6:
+                        if abs(normal_angle) > np.pi / 18:
                             if is_debug:
                                 self._debug_bary(b, bary)
                             else:
@@ -758,6 +769,7 @@ class Part:
             all: all valid points
         :return: start points
         """
+        shrink_size = PaintToolProfile.PAINT_DIAMETER / 2
         start_points = []
         axis_2_value = [item[0][self.principal_axes[1]] for item in self._start_points[side]]
         axis_2_max, axis_2_min = max(axis_2_value), min(axis_2_value)
@@ -766,8 +778,8 @@ class Part:
                 center_point, hook_point = bary.get_face_guide_point(self.HOOK_DISTANCE_TO_PART)
                 grid_index = self._get_grid_index_2(center_point[self.principal_axes[1]])
                 grid_range = self.grid_dict[side][grid_index]
-                if center_point[self.principal_axes[0]] - grid_range[0] >= MIN_PAINT_DIAMETER and \
-                        grid_range[1] - center_point[self.principal_axes[0]] >= MIN_PAINT_DIAMETER and \
+                if center_point[self.principal_axes[0]] - grid_range[0] >= shrink_size and \
+                        grid_range[1] - center_point[self.principal_axes[0]] >= shrink_size and \
                         axis_2_min <= center_point[self.principal_axes[1]] <= axis_2_max:
                     orn = [-i for i in bary.get_normal()]
                     start_points.append([hook_point, orn])
@@ -814,7 +826,7 @@ class Part:
         self._smooth_bary_normals_with_neighbors()
         # self._smooth_bary_normals_with_neighbors(is_debug=True)
 
-    def post_setup(self):
+    def postprocess(self):
         self._length_width_ratio = (self.ranges[0][1] - self.ranges[0][0]) / (self.ranges[1][1] - self.ranges[1][0])
         self._writer = TextWriter(self.urdf_id, self.principal_axes, self.ranges)
         self._set_grid_dict()
@@ -996,7 +1008,7 @@ class Part:
             addUserDebugLine((pose[0], self.grid_dict[side][i][0], self.ranges[1][0] + (i + 1) * step_size),
                              (pose[0], self.grid_dict[side][i][1], self.ranges[1][0] + (i + 1) * step_size), (1, 0, 0))
 
-    def get_partial_observation(self, side, color, pose):
+    def get_observation(self, side, color, pose):
         color = _get_color(color)
         return self._obs_handler.get_observation(side, color, pose)
 
@@ -1028,31 +1040,33 @@ class SectionObservation(Observation):
         Observation.__init__(self, part)
         self.section = section
 
-    # def get_observation(self, side, color, pose):
-    #     obs = {i: 0 for i in range(self.section)}
-    #     result = np.zeros(self.section, dtype=np.float64)
-    #     basis = 2 * np.pi / self.section
-    #     for pixel, coordinate in self._part.profile_dicts[side].items():
-    #         relative_x = coordinate[self._part.principal_axes[0]] - pose[self._part.principal_axes[0]]
-    #         relative_y = coordinate[self._part.principal_axes[1]] - pose[self._part.principal_axes[1]]
-    #         if relative_x == 0 and relative_y == 0:
-    #             continue
-    #         angle = np.arctan2(relative_y, relative_x)
-    #         if angle < 0:
-    #             angle = 2 * np.pi + angle
-    #         phase = angle // basis
-    #         # distance weighted point should be redesigned, first without distance weight
-    #         distance = np.sqrt(relative_x ** 2 + relative_y ** 2)
-    #         weighted_distance = np.exp(-distance * SectionObservation.DISTANCE_FACTOR)
-    #         if not self._part.get_pixel_status(pixel, color):
-    #             obs[phase] += weighted_distance
-    #     max_factor = max(obs, key=obs.get)
-    #     if obs[max_factor] != 0:
-    #         for phase in obs:
-    #             result[phase] = np.float64(obs[phase] / obs[max_factor])
-    #     return result
-
     def get_observation(self, side, color, pose):
+        if self.section == 4:
+            return self._get_observation(side, color, pose)
+        obs = {i: 0 for i in range(self.section)}
+        result = np.zeros(self.section, dtype=np.float64)
+        basis = 2 * np.pi / self.section
+        for pixel, coordinate in self._part.profile_dicts[side].items():
+            relative_x = coordinate[self._part.principal_axes[0]] - pose[self._part.principal_axes[0]]
+            relative_y = coordinate[self._part.principal_axes[1]] - pose[self._part.principal_axes[1]]
+            if relative_x == 0 and relative_y == 0:
+                continue
+            angle = np.arctan2(relative_y, relative_x)
+            if angle < 0:
+                angle = 2 * np.pi + angle
+            phase = angle // basis
+            # distance weighted point should be redesigned, first without distance weight
+            distance = np.sqrt(relative_x ** 2 + relative_y ** 2)
+            weighted_distance = np.exp(-distance * SectionObservation.DISTANCE_FACTOR)
+            if not self._part.get_pixel_status(pixel, color):
+                obs[phase] += weighted_distance
+        max_factor = max(obs, key=obs.get)
+        if obs[max_factor] != 0:
+            for phase in obs:
+                result[phase] = np.float64(obs[phase] / obs[max_factor])
+        return result
+
+    def _get_observation(self, side, color, pose):
         obs_1 = obs_2 = obs_3 = obs_4 = 0
         counter_1 = counter_2 = counter_3 = counter_4 = 0
         for pixel, coordinate in self._part.profile_dicts[side].items():
@@ -1242,6 +1256,7 @@ def _get_included_angle(a, b):
 
 
 def _get_side(front_normal, v):
+    MAX_ANGLE_DIFF = np.pi / 3
     # Take care of the possible rotation made in loading the part!
     angle_front = _get_included_angle(front_normal, v)
     back_normal = [-i for i in front_normal]
@@ -1253,7 +1268,7 @@ def _get_side(front_normal, v):
     return Side.other
 
 
-def _get_uv_map(file, v_array, vt_array, front_normal):
+def _setup_uv_map(file, v_array, vt_array, front_normal):
     file.seek(0)
     uv_map = {}
     bary_list = []
@@ -1278,28 +1293,33 @@ def _get_uv_map(file, v_array, vt_array, front_normal):
 
 
 def _get_corner_points_ranges(v_array,  principal_axes):
+    shrink_size = PaintToolProfile.PAINT_DIAMETER / 2
     points = []
     ranges = []
-    v_corner = sorted(v_array, key=lambda tup: tup[principal_axes[0]] + tup[principal_axes[1]])
-    v_corner_0 = list(v_corner[0])
-    v_corner_0[principal_axes[0]] += MIN_PAINT_DIAMETER
-    v_corner_0[principal_axes[1]] += MIN_PAINT_DIAMETER
-    points.append(v_corner_0)
-    v_corner_m1 = list(v_corner[-1])
-    v_corner_m1[principal_axes[0]] -= MIN_PAINT_DIAMETER
-    v_corner_m1[principal_axes[1]] -= MIN_PAINT_DIAMETER
-    points.append(v_corner_m1)
-    v_counter_corner = sorted(v_array, key=lambda tup: tup[principal_axes[0]] - tup[principal_axes[1]])
-    v_counter_corner_0 = list(v_counter_corner[0])
-    v_counter_corner_0[principal_axes[0]] += MIN_PAINT_DIAMETER
-    v_counter_corner_0[principal_axes[1]] -= MIN_PAINT_DIAMETER
-    points.append(v_counter_corner_0)
-    v_counter_corner_m1 = list(v_counter_corner[-1])
-    v_counter_corner_m1[principal_axes[0]] -= MIN_PAINT_DIAMETER
-    v_counter_corner_m1[principal_axes[1]] += MIN_PAINT_DIAMETER
-    points.append(v_counter_corner_m1)
-    v_range_1 = sorted(v_array, key=lambda tup: tup[principal_axes[0]])
-    v_range_2 = sorted(v_array, key=lambda tup: tup[principal_axes[1]])
+    v_corner = sorted(v_array, key=lambda v: v[principal_axes[0]] + v[principal_axes[1]])
+    # Left lower corner
+    v_0 = list(v_corner[0])
+    v_0[principal_axes[0]] += shrink_size
+    v_0[principal_axes[1]] += shrink_size
+    points.append(v_0)
+    # Right upper corner
+    v_1 = list(v_corner[-1])
+    v_1[principal_axes[0]] -= shrink_size
+    v_1[principal_axes[1]] -= shrink_size
+    points.append(v_1)
+    v_counter_corner = sorted(v_array, key=lambda v: v[principal_axes[0]] - v[principal_axes[1]])
+    # Right lower corner
+    v_2 = list(v_counter_corner[0])
+    v_2[principal_axes[0]] += shrink_size
+    v_2[principal_axes[1]] -= shrink_size
+    points.append(v_2)
+    # Left upper corner
+    v_3 = list(v_counter_corner[-1])
+    v_3[principal_axes[0]] -= shrink_size
+    v_3[principal_axes[1]] += shrink_size
+    points.append(v_3)
+    v_range_1 = sorted(v_array, key=lambda v: v[principal_axes[0]])
+    v_range_2 = sorted(v_array, key=lambda v: v[principal_axes[1]])
     ranges.append([v_range_1[0][principal_axes[0]], v_range_1[-1][principal_axes[0]]])
     ranges.append([v_range_2[0][principal_axes[1]], v_range_2[-1][principal_axes[1]]])
     return points, ranges
@@ -1313,28 +1333,23 @@ def _get_coordinate_range(v_array, col_num):
 def _get_principal_axes(v_array):
     # TODO: Refactor the principle axes to the plane perpendicular to the principal plane
     # Instead of dropping the coordinate of one direction.
-    dimension = len(v_array[-1])
-    ranges = [_get_coordinate_range(v_array, i) for i in range(dimension)]
+    ranges = [_get_coordinate_range(v_array, i) for i in range(3)]
     non_principal_axis = ranges.index(min(ranges))
-    principal_axes = [i for i in range(dimension) if i != non_principal_axis]
+    principal_axes = [i for i in range(3) if i != non_principal_axis]
     return principal_axes, non_principal_axis
 
 
 def _cache_obj(urdf_obj, obj_path):
     with open(obj_path, mode='r') as f:
         v_array, vt_array = _retrieve_obj_elements(f)
-        global_v_array = _get_global_coordinate(urdf_obj.urdf_id, v_array)
-        urdf_obj.principal_axes, urdf_obj.non_principal_axis = _get_principal_axes(global_v_array)
-        urdf_obj.front_normal = AXES[urdf_obj.non_principal_axis]
-        bary_list, uv_map = _get_uv_map(f, global_v_array, vt_array, urdf_obj.front_normal)
-        urdf_obj.vertices = global_v_array
-        urdf_obj.uv_map = uv_map
-        urdf_obj.bary_list = bary_list
+        g_v_array = _get_global_coordinate(urdf_obj.urdf_id, v_array)
+        urdf_obj.set_axes(*_get_principal_axes(g_v_array))
+        urdf_obj.set_retrieved_info(g_v_array, *_setup_uv_map(f, g_v_array, vt_array, urdf_obj.front_normal))
         urdf_obj.preprocess()
-        corner_points, ranges = _get_corner_points_ranges(global_v_array, urdf_obj.principal_axes)
+        corner_points, ranges = _get_corner_points_ranges(g_v_array, urdf_obj.principal_axes)
         urdf_obj.set_start_points(corner_points)
         urdf_obj.set_ranges_along_principal(ranges)
-        urdf_obj.post_setup()
+        urdf_obj.postprocess()
 
 
 def _cache_texture(urdf_obj, obj_path, texture_path):
@@ -1409,8 +1424,8 @@ def get_normalized_pose(urdf_id, side, pose, radius=0.05):
     return _urdf_cache[urdf_id].get_normalized_pose(side, pose, radius)
 
 
-def get_partial_observation(urdf_id, side, color, pose):
-    return _urdf_cache[urdf_id].get_partial_observation(side, color, pose)
+def get_observation(urdf_id, side, color, pose):
+    return _urdf_cache[urdf_id].get_observation(side, color, pose)
 
 
 def reset_part(urdf_id, side, color, percent, mode, with_start_point=False):
