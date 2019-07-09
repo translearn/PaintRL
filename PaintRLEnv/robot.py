@@ -274,23 +274,23 @@ class Robot:
         dst_target, _ = p.multiplyTransforms(self._pose, self._orn, (0, 0, 1), (0, 0, 0, 1))
         p.addUserDebugLine(self._pose, dst_target, (0, 1, 0))
 
+    def _get_shot_center(self):
+        return _get_tcp_point_in_world(self._pose, self._orn, (0, 0, 0.1))[0]
+
     def _paint(self, part_id, color, paint_side, show_debug_lines=False):
         beams = self._generate_paint_beams(show_debug_lines)
         results = p.rayTestBatch(*beams)
         points = [item[3] for item in results if item[0] != -1]
-        succeed_data = p.paint(part_id, points, color, paint_side)
-        # succeed_data = p.slow_paint(part_id, points, color, paint_side)
-        return succeed_data
+        # return p.slow_paint(part_id, points, color, paint_side)
+        return p.paint(part_id, points, self._get_shot_center(), color, paint_side)
 
     def _fast_paint(self, part_id, color, paint_side, show_debug_lines=False):
-        radius = 0.051
-        point = _get_tcp_point_in_world(self._pose, self._orn, (0, 0, 0.1))[0]
         if show_debug_lines:
             self._draw_tcp_orn()
-        return p.fast_paint(part_id, point, radius, color, paint_side)
+        return p.fast_paint(part_id, self._get_shot_center(), color, paint_side)
 
     def _count_not_on_part(self):
-        # check consecutive not on part
+        # check consecutively not on part
         if self._last_on_part:
             self._last_on_part = False
             return

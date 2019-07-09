@@ -43,8 +43,8 @@ def normalize(v, tolerance=0.00001):
 
 class PaintToolProfile:
     """The profile of the paint gun, static"""
-    PAINT_DIAMETER = 0.051
-    STEP_SIZE = PAINT_DIAMETER
+    PAINT_RADIUS = 0.051
+    STEP_SIZE = PAINT_RADIUS
 
 
 class Side(enum.Enum):
@@ -55,14 +55,6 @@ class Side(enum.Enum):
 
 
 VALID_SIDE = [Side.front, Side.back]
-
-
-def _get_pixel_coordinate(u, v, width, height):
-    # pixels_coord = uv_coord * [width, height], normal round up, without Bilinear filtering
-    # some uv coordinate are not in range [0, 1]
-    i = min(int(round(width * u)), width - 1)
-    j = min(int(round(height * v)), height - 1)
-    return i, j
 
 
 def _get_point_along_normal(point, length, vn):
@@ -169,6 +161,14 @@ class BarycentricInterpolator:
             return -1, -1, -1
         return u, v, w
 
+    @staticmethod
+    def _get_pixel_coordinate(u, v, width, height):
+        # pixels_coord = uv_coord * [width, height], normal round up, without Bilinear filtering
+        # some uv coordinate are not in range [0, 1]
+        i = min(int(round(width * u)), width - 1)
+        j = min(int(round(height * v)), height - 1)
+        return i, j
+
     def _get_area(self):
         return np.linalg.norm(np.cross(self._v0, self._v1)) / 2
 
@@ -190,9 +190,9 @@ class BarycentricInterpolator:
 
     def get_uv_pixels(self, width, height):
         pixels = []
-        uva = _get_pixel_coordinate(*self._uva, width, height)
-        uvb = _get_pixel_coordinate(*self._uvb, width, height)
-        uvc = _get_pixel_coordinate(*self._uvc, width, height)
+        uva = self._get_pixel_coordinate(*self._uva, width, height)
+        uvb = self._get_pixel_coordinate(*self._uvb, width, height)
+        uvc = self._get_pixel_coordinate(*self._uvc, width, height)
         pixels.append(uva)
         pixels.append(uvb)
         pixels.append(uvc)
@@ -234,21 +234,11 @@ class BarycentricInterpolator:
         # For efficiency reason, do not check uvs are set or not
         u, v = list(np.dot(bary_a, self._uva) + np.dot(bary_b, self._uvb) + np.dot(bary_c, self._uvc))
         if u < 0 or v < 0:
-            # print('u and v are:{} and {}'.format(u, v))
-            # print('uva, uvb, uvc are:{}, {}, {}'.format(self._uva, self._uvb, self._uvc))
-            # print('bary coordinate:({}, {}, {})'.format(bary_a, bary_b, bary_c))
-            # print('point coordinate:{}'.format(point))
-            # print('triangle coordinate:{}, {}, {}'.format(self._a, self._b, self._c))
-            u = max(u, 0)
-            v = max(v, 0)
-        return _get_pixel_coordinate(u, v, width, height)
-        # bary_a, bary_b, bary_c = self._get_bary_coordinate(point)
-        # # For efficiency reason, do not check uvs are set or not
-        # u, v = list(np.dot(bary_a, self._uva) + np.dot(bary_b, self._uvb) + np.dot(bary_c, self._uvc))
-        # return _get_pixel_coordinate(u, v, width, height)
+            u, v = max(u, 0), max(v, 0)
+        return self._get_pixel_coordinate(u, v, width, height)
 
     def add_debug_info(self):
-        # draw the triangle for debug
+        # Draw the triangle for debug
         color = (1, 0, 0)
         addUserDebugLine(self._a, self._b, color)
         addUserDebugLine(self._b, self._c, color)
@@ -361,7 +351,7 @@ class ColorHandler:
 class RGBColorHandler(ColorHandler):
 
     def is_changed(self, texel, color):
-        # compare only the first channel to speed up the process
+        # Compare only the first channel to speed up the process
         return self._part.texels[texel] == color[0]
         # return self._part.texels[texel] == color[0] and self._part.texels[texel + 1] == color[1] \
         #        and self._part.texels[texel + 2] == color[2]
@@ -375,7 +365,8 @@ class RGBColorHandler(ColorHandler):
         self._part.texels[texel + 2] = color[2]
         return 1
 
-    def change_pixels(self, side, color, center, points):
+    def change_pixels(self, side, color, _, points):
+        color = _get_color(color)
         affected_pixels = []
         succeed_counter = 0
         for index in points:
@@ -416,6 +407,7 @@ class HSIColorHandler(ColorHandler):
         return color / 255
 
     def change_pixels(self, side, color, center, points):
+        # color = _get_color(color)
         x = [self._part.pixel_kd_tree[side].data[i] for i in points]
         y = [center] * len(x)
         distances = minkowski_distance(x, y)
@@ -424,8 +416,8 @@ class HSIColorHandler(ColorHandler):
         succeed_counter = 0
         for counter, index in enumerate(points):
             i, j = self._part.profile[side][index]
-            change_time = int(self.TARGET_MAX * (1 - (distances[counter] / r) ** 2) ** (self.BETA - 1)) + 1
-            changed_percent = self.change_pixel(change_time, i, j)
+            quantity = int(self.TARGET_MAX * (1 - (distances[counter] / r) ** 2) ** (self.BETA - 1)) + 1
+            changed_percent = self.change_pixel(quantity, i, j)
             succeed_counter += changed_percent
             affected_pixels.append((i, j))
             # if (i, j) not in self.debug_stack:
@@ -531,16 +523,16 @@ class Part:
             return pose, orn
         return None, None
 
-    def _change_texel_color(self, color, bary, point):
-        i, j = bary.get_texel(point, self.texture_width, self.texture_height)
-        return i, j, self._color_handler.change_pixel(color, i, j)
-
     def _refresh_texture(self):
         changeTexture(self.texture_id, self.texels, self.texture_width, self.texture_height)
 
+    def _change_texel_color(self, color, bary, point):
+        i, j = bary.get_texel(point, self.texture_width, self.texture_height)
+        color = _get_color(color)
+        return i, j, self._color_handler.change_pixel(color, i, j)
+
     def slow_paint(self, points, color, side):
         """Only for performance comparison, do not use this method."""
-        color = _get_color(color)
         if not points:
             return [], 0
         nearest_vertices = self.vertices_kd_tree[side].query(points, k=1)[1]
@@ -558,34 +550,25 @@ class Part:
         self._last_painted_pixels = affected_pixels
         return valid_pixels, succeed_counter
 
-    def paint(self, points, color, side):
-        color = _get_color(color)
+    def paint(self, points, center, color, side):
         if not points:
             return [], 0
         nearest_vertices = self.pixel_kd_tree[side].query(points, k=1)[1]
-        affected_pixels = []
-        succeed_counter = 0
-        for index in nearest_vertices:
-            i, j = self.profile[side][index]
-            succeed_counter += self._color_handler.change_pixel(color, i, j)
-            affected_pixels.append((i, j))
-        self._refresh_texture()
-        affected_pixels = list(set(affected_pixels))
-        valid_pixels = [pixel for pixel in affected_pixels if pixel not in self._last_painted_pixels]
-        self._last_painted_pixels = affected_pixels
-        return valid_pixels, succeed_counter
+        return self._paint(center, color, nearest_vertices, side)
 
-    def fast_paint(self, point, radius, color, side):
-        color = _get_color(color)
-        nearest_vertices = self.pixel_kd_tree[side].query_ball_point(point, radius)
-        succeed_counter, affected_pixels = self._color_handler.change_pixels(side, color, point, nearest_vertices)
+    def fast_paint(self, center, color, side):
+        nearest_vertices = self.pixel_kd_tree[side].query_ball_point(center, PaintToolProfile.PAINT_RADIUS)
+        return self._paint(center, color, nearest_vertices, side)
+
+    def _paint(self, center, color, nearest_vertices, side):
+        succeed_counter, affected_pixels = self._color_handler.change_pixels(side, color, center, nearest_vertices)
         self._refresh_texture()
         valid_pixels = [pixel for pixel in affected_pixels if pixel not in self._last_painted_pixels]
         self._last_painted_pixels = affected_pixels
         return valid_pixels, succeed_counter
 
     def _label_part(self):
-        # preprocessing all irrelevant pixels
+        # Preprocessing all irrelevant pixels
         target_pixels = [(i, j) for i in range(self.texture_width) for j in range(self.texture_height)]
         if self._render:
             for side in self.profile:
@@ -769,7 +752,7 @@ class Part:
             all: all valid points
         :return: start points
         """
-        shrink_size = PaintToolProfile.PAINT_DIAMETER / 2
+        shrink_size = PaintToolProfile.PAINT_RADIUS / 2
         start_points = []
         axis_2_value = [item[0][self.principal_axes[1]] for item in self._start_points[side]]
         axis_2_max, axis_2_min = max(axis_2_value), min(axis_2_value)
@@ -906,16 +889,13 @@ class Part:
         :return: None or start point
         """
         # self.get_texture_image().show()
-        color = _get_color(color)
         sign0, sign1 = self.MODE_SIGN[mode]
-        targets = sorted(self.profile[side], key=lambda p: sign0 * p[0] + sign1 * p[1])
-        quantity = int(len(targets) * percent / 100)
-        i = 0
-        for i in range(quantity):
-            self.color_setter.change_pixel(color, *targets[i])
+        quantity = int(len(self.profile[side]) * percent / 100)
+        targets = sorted(self.profile[side], key=lambda p: sign0 * p[0] + sign1 * p[1])[:quantity]
+        self.color_setter.change_pixels(side, color, None, targets)
         # self.get_texture_image().show()
         if with_start_point:
-            rand_pixel = randint(i, len(targets) - 1)
+            rand_pixel = randint(quantity, len(targets) - 1)
             nearest_point = self.profile_dicts[side][targets[rand_pixel]]
             start_index = self._start_pos[side].query(nearest_point, k=1)[1]
             start_point = self._start_points[side][start_index]
@@ -1009,7 +989,6 @@ class Part:
                              (pose[0], self.grid_dict[side][i][1], self.ranges[1][0] + (i + 1) * step_size), (1, 0, 0))
 
     def get_observation(self, side, color, pose):
-        color = _get_color(color)
         return self._obs_handler.get_observation(side, color, pose)
 
     def write_text_info(self, action, reward, penalty, total_return, step):
@@ -1032,66 +1011,51 @@ class NoObservation(Observation):
 
 
 class SectionObservation(Observation):
-    # Distance weight factor, 0 means no distance weight
+    # Distance weight factor, currently not supported
     DISTANCE_FACTOR = 1
 
     def __init__(self, part, section):
-        # 360 / 20 = 18 sections
         Observation.__init__(self, part)
         self.section = section
+        self._basis = 2 * np.pi / self.section
+
+    def _get_index(self, relative_x, relative_y):
+        angle = np.arctan2(relative_y, relative_x)
+        if angle < 0:
+            angle = 2 * np.pi + angle
+        index = int(angle // self._basis)
+        return index
+
+    @staticmethod
+    def _get_index_4sector(relative_x, relative_y):
+        if relative_x > 0 and relative_y > 0:
+            index = 0
+        elif relative_x < 0 < relative_y:
+            index = 1
+        elif relative_x < 0 and relative_y < 0:
+            index = 2
+        else:
+            index = 3
+        return index
 
     def get_observation(self, side, color, pose):
-        if self.section == 4:
-            return self._get_observation(side, color, pose)
-        obs = {i: 0 for i in range(self.section)}
+        color = _get_color(color)
+        done = [0 for _ in range(self.section)]
+        total = [0 for _ in range(self.section)]
         result = np.zeros(self.section, dtype=np.float64)
-        basis = 2 * np.pi / self.section
         for pixel, coordinate in self._part.profile_dicts[side].items():
             relative_x = coordinate[self._part.principal_axes[0]] - pose[self._part.principal_axes[0]]
             relative_y = coordinate[self._part.principal_axes[1]] - pose[self._part.principal_axes[1]]
             if relative_x == 0 and relative_y == 0:
                 continue
-            angle = np.arctan2(relative_y, relative_x)
-            if angle < 0:
-                angle = 2 * np.pi + angle
-            phase = angle // basis
-            # distance weighted point should be redesigned, first without distance weight
-            distance = np.sqrt(relative_x ** 2 + relative_y ** 2)
-            weighted_distance = np.exp(-distance * SectionObservation.DISTANCE_FACTOR)
-            if not self._part.get_pixel_status(pixel, color):
-                obs[phase] += weighted_distance
-        max_factor = max(obs, key=obs.get)
-        if obs[max_factor] != 0:
-            for phase in obs:
-                result[phase] = np.float64(obs[phase] / obs[max_factor])
-        return result
-
-    def _get_observation(self, side, color, pose):
-        obs_1 = obs_2 = obs_3 = obs_4 = 0
-        counter_1 = counter_2 = counter_3 = counter_4 = 0
-        for pixel, coordinate in self._part.profile_dicts[side].items():
-            relative_x = coordinate[self._part.principal_axes[0]] - pose[self._part.principal_axes[0]]
-            relative_y = coordinate[self._part.principal_axes[1]] - pose[self._part.principal_axes[1]]
             valid = 1 if not self._part.get_pixel_status(pixel, color) else 0
-            if relative_x == 0 and relative_y == 0:
-                continue
-            elif relative_x > 0 and relative_y > 0:
-                obs_1 += valid
-                counter_1 += 1
-            elif relative_x < 0 < relative_y:
-                obs_2 += valid
-                counter_2 += 1
-            elif relative_x < 0 and relative_y < 0:
-                obs_3 += valid
-                counter_3 += 1
-            else:
-                obs_4 += valid
-                counter_4 += 1
-        result_1 = np.float64(0) if counter_1 == 0 else np.float64(obs_1/counter_1)
-        result_2 = np.float64(0) if counter_2 == 0 else np.float64(obs_2 / counter_2)
-        result_3 = np.float64(0) if counter_3 == 0 else np.float64(obs_3 / counter_3)
-        result_4 = np.float64(0) if counter_4 == 0 else np.float64(obs_4 / counter_4)
-        return result_1, result_2, result_3, result_4
+            index = self._get_index_4sector(relative_x, relative_y) if self.section == 4 \
+                else self._get_index(relative_x, relative_y)
+            done[index] += valid
+            total[index] += 1
+        for i, (d, t) in enumerate(zip(done, total)):
+            result[i] = np.float64(0 if t == 0 else d / t)
+        return result
 
 
 class GridObservation(Observation):
@@ -1145,14 +1109,8 @@ class GridObservation(Observation):
         self._merge_vertical_grids(grid_pixels)
 
     def _show_grids(self, color, side):
-
         for i in range(self._h_granularity):
-            even = 0
-            # color = _get_color((1, 0, 0))
-            if i % 2 == 0:
-                # color = _get_color((0, 1, 0))
-                even = 1
-                # continue
+            even = 1 if i % 2 == 0 else 0
             for j in range(self._h_granularity):
                 if j % 2 == even:
                     continue
@@ -1163,6 +1121,7 @@ class GridObservation(Observation):
                     self._part.color_setter.change_pixel(color, *pixel)
 
     def get_observation(self, side, color, _):
+        color = _get_color(color)
         # self._show_grids(color, side)
         obs = np.zeros((self._h_granularity, self._h_granularity), dtype=np.float64)
         for i in range(self._h_granularity):
@@ -1256,14 +1215,14 @@ def _get_included_angle(a, b):
 
 
 def _get_side(front_normal, v):
-    MAX_ANGLE_DIFF = np.pi / 3
+    max_angle_diff = np.pi / 3
     # Take care of the possible rotation made in loading the part!
     angle_front = _get_included_angle(front_normal, v)
     back_normal = [-i for i in front_normal]
     angle_back = _get_included_angle(back_normal, v)
-    if - MAX_ANGLE_DIFF <= angle_front <= MAX_ANGLE_DIFF:
+    if - max_angle_diff <= angle_front <= max_angle_diff:
         return Side.front
-    if - MAX_ANGLE_DIFF <= angle_back <= MAX_ANGLE_DIFF:
+    if - max_angle_diff <= angle_back <= max_angle_diff:
         return Side.back
     return Side.other
 
@@ -1293,7 +1252,7 @@ def _setup_uv_map(file, v_array, vt_array, front_normal):
 
 
 def _get_corner_points_ranges(v_array,  principal_axes):
-    shrink_size = PaintToolProfile.PAINT_DIAMETER / 2
+    shrink_size = PaintToolProfile.PAINT_RADIUS / 2
     points = []
     ranges = []
     v_corner = sorted(v_array, key=lambda v: v[principal_axes[0]] + v[principal_axes[1]])
@@ -1374,21 +1333,22 @@ def load_part(urdf_id, render, obs_mode, obs_grad, color_mode, path):
         print(str(e))
 
 
-def paint(urdf_id, points, color, side):
+def paint(urdf_id, points, center, color, side):
     """
     paint a specific part
     :param urdf_id: integer ID of the model returned by bullet
     :param points: intersection points in global coordinate
+    :param center: center of the paint shot
     :param color: list [r, g, b], each in range [0, 1]
     :param side: side of the part to be painted
     :return: succeed data
     """
-    return _urdf_cache[urdf_id].paint(points, color, side)
+    return _urdf_cache[urdf_id].paint(points, center, color, side)
 
 
-def fast_paint(urdf_id, point, radius, color, side):
+def fast_paint(urdf_id, center, color, side):
     """kd-tree method, support better pseudo-HSI color handler"""
-    return _urdf_cache[urdf_id].fast_paint(point, radius, color, side)
+    return _urdf_cache[urdf_id].fast_paint(center, color, side)
 
 
 def slow_paint(urdf_id, point, color, side):
