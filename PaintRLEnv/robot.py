@@ -277,17 +277,17 @@ class Robot:
     def _get_shot_center(self):
         return _get_tcp_point_in_world(self._pose, self._orn, (0, 0, 0.1))[0]
 
-    def _paint(self, part_id, color, paint_side, show_debug_lines=False):
+    def _paint(self, part_id, show_debug_lines=False):
         beams = self._generate_paint_beams(show_debug_lines)
         results = p.rayTestBatch(*beams)
         points = [item[3] for item in results if item[0] != -1]
-        # return p.slow_paint(part_id, points, color, paint_side)
-        return p.paint(part_id, points, self._get_shot_center(), color, paint_side)
+        # return p.slow_paint(part_id, points)
+        return p.paint(part_id, points, self._get_shot_center())
 
-    def _fast_paint(self, part_id, color, paint_side, show_debug_lines=False):
+    def _fast_paint(self, part_id, show_debug_lines=False):
         if show_debug_lines:
             self._draw_tcp_orn()
-        return p.fast_paint(part_id, self._get_shot_center(), color, paint_side)
+        return p.fast_paint(part_id, self._get_shot_center())
 
     def _count_not_on_part(self):
         # check consecutively not on part
@@ -374,13 +374,11 @@ class Robot:
     def get_observation(self):
         return self._pose, self._get_tcp_orn_norm()
 
-    def apply_action(self, action, part_id, color, paint_side):
+    def apply_action(self, action, part_id):
         """
         support partial motor values
         :param action: 1d or 2d range -1, 1
-        :param color: color to be painted
         :param part_id: part id
-        :param paint_side: side of the part
         :return: succeed rate of paint
         """
         for i, a in enumerate(action):
@@ -409,8 +407,8 @@ class Robot:
             if not self._check_in_position(pos_orn[0]):
                 # Robot in singularity point or given point is out of working space
                 print('not in pose!')
-            # paint_succeed_data = self._paint(part_id, color, paint_side)
-            paint_succeed_data = self._fast_paint(part_id, color, paint_side)
+            # paint_succeed_data = self._paint(part_id)
+            paint_succeed_data = self._fast_paint(part_id)
             # pic = p.get_texture_image(part_id)
             # pic = pic.resize([480, 480])
             # path = self.Global_path + str(self.Global_counter)

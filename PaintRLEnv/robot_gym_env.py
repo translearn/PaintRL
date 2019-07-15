@@ -281,19 +281,20 @@ class RobotGymEnv(gym.Env):
             p.loadURDF('plane.urdf', (0, 0, 0), useFixedBase=True)
         path = os.path.join(self._urdf_root, 'urdf', 'painting', self._part_name)
         self._part_id = p.loadURDF(path, (-0.4, -0.6, 0.25), useFixedBase=True, flags=p.URDF_ENABLE_SLEEPING)
-        p.load_part(self._part_id, self._renders, self.OBS_MODE, self.OBS_GRAD, self.COLOR_MODE, path)
+        p.load_part(self._part_id, self._renders, self.OBS_MODE, self.OBS_GRAD, self.COLOR_MODE, path,
+                    self._paint_side, self._paint_color)
 
-        self._start_points = p.get_start_points(self._part_id, self._paint_side, mode=self.START_POINT_MODE)
+        self._start_points = p.get_start_points(self._part_id, mode=self.START_POINT_MODE)
         self.robot = Robot(self._step_manager, 'kuka_iiwa/model_free_base.urdf', pos=(0.2, -0.2, 0),
                            orn=p.getQuaternionFromEuler((0, 0, math.pi*3/2)), with_robot=self._with_robot)
-        density = p.get_side_density(self._part_id, self._paint_side)
+        density = p.get_side_density(self._part_id)
         self.robot.set_up_paint_params(self.COLOR_MODE, density)
         p.setGravity(0, 0, -10)
         self.reset()
 
     def _termination(self):
         self._step_counter += 1
-        # self._max_possible_point = p.get_job_limit(self._part_id, self._paint_side)
+        # self._max_possible_point = p.get_job_limit(self._part_id)
         finished = False if self._max_possible_point > self._total_reward * 100 else True
         robot_termination = self.robot.termination_request()
 
@@ -311,10 +312,10 @@ class RobotGymEnv(gym.Env):
     def _augmented_observation(self):
         pose, _ = self.robot.get_observation()
         # TODO: radius is a property of the paint gun, should be refactored to a gun object
-        normalized_pose = p.get_normalized_pose(self._part_id, self._paint_side, pose, radius=0.051)
+        normalized_pose = p.get_normalized_pose(self._part_id, pose, radius=0.051)
         if self.OBS_MODE == 'simple':
             return list(normalized_pose)
-        status = p.get_observation(self._part_id, self._paint_side, self._paint_color, pose)
+        status = p.get_observation(self._part_id, pose)
         if self.OBS_MODE == 'grid':
             return status
         elif self.OBS_MODE == 'discrete':
@@ -354,8 +355,7 @@ class RobotGymEnv(gym.Env):
 
     def step(self, action):
         p_action = self._preprocess_action(action)
-        paint_succeed_rate, succeeded_counter = self.robot.apply_action(p_action, self._part_id,
-                                                                        self._paint_color, self._paint_side)
+        paint_succeed_rate, succeeded_counter = self.robot.apply_action(p_action, self._part_id)
         reward = self._reward(succeeded_counter)
         penalty = self._penalty(paint_succeed_rate)
         actual_reward = reward - penalty
@@ -376,16 +376,14 @@ class RobotGymEnv(gym.Env):
     def reset(self):
         if self._rollout:
             p.removeAllUserDebugItems()
-            p.reset_part(self._part_id, self._paint_side, self._paint_color, 0, 0)
+            p.reset_part(self._part_id, 0, 0)
             start_point = self._start_points[0]
             self.replay_buffer = []
         else:
             painted_percent = 0  # randint(0, 49)
             painted_mode = randint(0, 7)
-            # start_point = p.reset_part(self._part_id, self._paint_side, self._paint_color,
-            #                            painted_percent, painted_mode, with_start_point=True)
-            p.reset_part(self._part_id, self._paint_side, self._paint_color,
-                         painted_percent, painted_mode, with_start_point=False)
+            # start_point = p.reset_part(self._part_id, painted_percent, painted_mode, with_start_point=True)
+            p.reset_part(self._part_id, painted_percent, painted_mode, with_start_point=False)
             start_point = self._start_points[randint(0, len(self._start_points) - 1)]
         self._step_counter = 0
         self._total_return = 0
