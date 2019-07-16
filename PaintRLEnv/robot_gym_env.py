@@ -35,14 +35,14 @@ class StepManager:
 
     def __init__(self, gym_env, render_video=False, video_dir=None):
         self._env = gym_env
-        self._render_video = render_video
+        self.render_video = render_video
         self._video_recorder = None
         self._last_time = None
         self._step_counter = 0
         self._video_dir = video_dir
         self._episode_counter = 0
         self._steps_per_frame = int(1 / (self._env.metadata.get('video.frames_per_second', 30) * StepManager.TIME_STEP))
-        if self._render_video:
+        if self.render_video:
             self.reset_video_recorder()
         self._reset_counters()
 
@@ -66,7 +66,7 @@ class StepManager:
 
     def step_simulation(self):
         p.stepSimulation()
-        if self._render_video:
+        if self.render_video:
             self._separate_frame()
             self._capture_frame()
 
@@ -279,8 +279,10 @@ class RobotGymEnv(gym.Env):
                     self._paint_side, self._paint_color)
 
         self._start_points = p.get_start_points(self._part_id, mode=self.START_POINT_MODE)
+        # Switch on the capture texture function manually here.
         self.robot = Robot(self._step_manager, 'kuka_iiwa/model_free_base.urdf', pos=(0.2, -0.2, 0),
-                           orn=p.getQuaternionFromEuler((0, 0, math.pi*3/2)), with_robot=self._with_robot)
+                           orn=p.getQuaternionFromEuler((0, 0, math.pi*3/2)),
+                           with_robot=self._with_robot, capture_texture=False)
         density = p.get_side_density(self._part_id)
         self.robot.set_up_paint_params(self.COLOR_MODE, density)
         p.setGravity(0, 0, -10)
@@ -363,6 +365,7 @@ class RobotGymEnv(gym.Env):
             if self._rollout:
                 self.replay_buffer.append(action)
                 if done:
+                    # Store the rollout results and print out.
                     print(self.replay_buffer)
         return observation, actual_reward, done,  {'reward': reward, 'penalty': penalty}
 
@@ -441,23 +444,8 @@ if __name__ == '__main__':
         # env.reset()
         # env.step([0, 1])
         # env.step([0, 1])
-        # from random import uniform
-        # import cProfile as Profile
-        #
-        # pr = Profile.Profile()
-        # pr.disable()
-        # for i in range(10000):
-        #     print('currently in iteration: {}'.format(i))
-        #     pr.enable()
-        #     for j in range(50):
-        #         ret = env.step([uniform(-1, 1), uniform(-1, 1)])
-        #         if ret[2]:
-        #             break
-        #     pr.disable()
-        #
-        # pr.dump_stats('/home/pyang/profile2.pstat')
-        #
-        # import pstats
-        #
-        # ps = pstats.Stats('/home/pyang/profile.pstat')
-        # ps.strip_dirs().print_stats()
+
+        # Paste the actions in the replay buffer into the list below.
+        # replay_buf = []
+        # for a in replay_buf:
+        #     env.step(a)

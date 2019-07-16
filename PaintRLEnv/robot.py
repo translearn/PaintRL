@@ -167,10 +167,10 @@ class Robot:
     NOT_ON_PART_TERMINATE_STEPS = 1000
 
     BETA = 2
-    # Global_counter = 0
-    # Global_path = ''
 
-    def __init__(self, step_manager, urdf_path, pos=(0, 0, 0), orn=(0, 0, 0, 1), with_robot=True):
+    def __init__(self, step_manager, urdf_path, pos=(0, 0, 0), orn=(0, 0, 0, 1),
+                 with_robot=True, capture_texture=False):
+
         self.robot_id = 0
 
         self._motor_count = 7
@@ -185,6 +185,7 @@ class Robot:
         self._motor_upper_limits = []
         self._max_velocities = []
         self._with_robot = with_robot
+        self._capture_texture = capture_texture
         # max velocity, etc. setup
         if self._with_robot:
             self.robot_id = p.loadURDF(urdf_path, pos, orn, useFixedBase=True, flags=p.URDF_USE_SELF_COLLISION)
@@ -206,10 +207,12 @@ class Robot:
         self._terminate_counter = 0
         self._last_on_part = True
         self._last_turning_angle = 0
-        #
-        # self.Global_path = '/tmp/' + _random_string(10) + '/'
-        # os.mkdir(self.Global_path)
-        # self.Global_counter = 0
+
+        self.Global_path = '/tmp/' + _random_string(10) + '/'
+        if self._capture_texture:
+            os.mkdir(self.Global_path)
+            print('Texture images will be stored under: ' + self.Global_path)
+        self.Global_counter = 0
 
     def _load_robot_info(self):
         self.joint_count = p.getNumJoints(self.robot_id)
@@ -351,6 +354,12 @@ class Robot:
         self.angle_diff = abs(new_angle - self._last_turning_angle)
         self._last_turning_angle = new_angle
 
+    def _simulate(self):
+        # TODO: here the 100 should be refactored to a quantified criteria
+        if self._step_manager.render_video:
+            for i in range(100):
+                self._step_manager.step_simulation()
+
     def reset(self, pose):
         pos, orn = get_pose_orn(*pose)
         if self._with_robot:
@@ -392,25 +401,21 @@ class Robot:
             if self._with_robot:
                 p.setJointMotorControlArray(self.robot_id, self._joint_indices, p.POSITION_CONTROL, a,
                                             forces=self._max_forces)
-                # TODO: here the 100 should be refactored to a quantified criteria
-                for i in range(100):
-                    self._step_manager.step_simulation()
             else:
                 p.addUserDebugLine(self._pose, pos_orn[0], (1, 0, 0))
             self._refresh_robot_pose(*pos_orn)
             if not self._check_in_position(pos_orn[0]):
                 # Robot in singularity point or given point is out of working space
                 print('not in pose!')
+
+            # Switch between two versions of paint method
             # paint_succeed_data = self._paint(part_id)
             paint_succeed_data = self._fast_paint(part_id)
-            # pic = p.get_texture_image(part_id)
-            # pic = pic.resize([480, 480])
-            # path = self.Global_path + str(self.Global_counter)
-            # print(path)
-            # pic.save(path + '.jpg', 'JPEG')
-            # self.Global_counter += 1
-            # for i in range(100):
-            #     self._step_manager.step_simulation()
+
+            if self._capture_texture:
+                self.capture_texture_image(part_id)
+            self._simulate()
+
             possible_pixels.extend(paint_succeed_data[0])
             succeeded_counter += paint_succeed_data[1]
         pixel_counter = len(set(possible_pixels))
@@ -422,6 +427,14 @@ class Robot:
         else:
             self.off_part_penalty = 0
         return success_rate, succeeded_counter
+
+    def capture_texture_image(self, part_id):
+        pic = p.get_texture_image(part_id)
+        pic = pic.resize([480, 480])
+        path = self.Global_path + str(self.Global_counter)
+        print(path)
+        pic.save(path + '.jpg', 'JPEG')
+        self.Global_counter += 1
 
 
 if __name__ == '__main__':

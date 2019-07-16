@@ -191,14 +191,25 @@ def simple_hsi_zigzag():
         print('In {0} steps get {1} rewards'.format(step_counter, total_return))
 
 
+def profile_rgb_zigzag():
+    import cProfile as Profile
+
+    pr = Profile.Profile()
+    pr.disable()
+    pr.enable()
+    simple_rgb_profile_zigzag()
+    pr.disable()
+    pr.dump_stats('/home/pyang/profile_grid.pstat')
+
+
+def show_profile_result():
+    import pstats
+
+    ps = pstats.Stats('/home/pyang/profile.pstat')
+    ps.strip_dirs().print_stats()
+
+
 if __name__ == '__main__':
     # simple_rgb1_zigzag()
     simple_hsi_zigzag()
-    # import cProfile as Profile
-    #
-    # pr = Profile.Profile()
-    # pr.disable()
-    # pr.enable()
-    # simple_rgb_profile_zigzag()
-    # pr.disable()
-    # pr.dump_stats('/home/pyang/profile_grid.pstat')
+    # profile_rgb_zigzag()
