@@ -120,31 +120,43 @@ Part_Dict = {
 
 
 class RobotGymEnv(gym.Env):
-    RENDER_HEIGHT = 720
-    RENDER_WIDTH = 960
+
     metadata = {'render.modes': ['human', 'rgb_array'], 'video.frames_per_second': 30}
 
     reward_range = (-1e3, 1e3)
 
     # Adjust env by hand when using Ray!!!
-    Current_Part_No = 0
-    Expected_Episode_Length = 245
-    EPISODE_MAX_LENGTH = 245
-
     ACTION_SHAPE = 1
     ACTION_MODE = 'discrete'
     DISCRETE_GRANULARITY = 4
 
-    TERMINATION_MODE = 'late'
-    SWITCH_THRESHOLD = 0.9
-
     OBS_MODE = 'section'
     OBS_GRAD = 4
 
-    START_POINT_MODE = 'anchor'
-    TURNING_PENALTY = False
-    OVERLAP_PENALTY = False
-    COLOR_MODE = 'RGB'
+    EXTRA_CONFIG = {
+        'RENDER_HEIGHT': 720,
+        'RENDER_WIDTH': 960,
+
+        'Part_NO': 0,
+        'Expected_Episode_Length': 245,
+        'EPISODE_MAX_LENGTH': 245,
+
+        # 'early', termination controlled by average reward
+        # 'late', termination clipped by max permitted step
+        # 'hybrid', termination is early at first, after reached threshold will switch to late mode
+        'TERMINATION_MODE': 'late',
+        # Switch theshold in hybrid mode
+        'SWITCH_THRESHOLD': 0.9,
+
+        # 'fixed' only one point,
+        # 'anchor' four anchor points,
+        # 'edge' edge points,
+        # 'all' all points, namely all of the triangle centers
+        'START_POINT_MODE': 'anchor',
+        'TURNING_PENALTY': False,
+        'OVERLAP_PENALTY': False,
+        'COLOR_MODE': 'RGB',
+    }
 
     if ACTION_MODE == 'continuous':
         if ACTION_SHAPE == 2:
@@ -194,43 +206,11 @@ class RobotGymEnv(gym.Env):
         else:
             cls.action_space = spaces.Discrete(discrete_granularity)
 
-    @classmethod
-    def set_termination_mode(cls, mode):
-        """
-        set termination mode
-        :param mode:
-            'early', termination controlled by average reward
-            'late', termination clipped by max permitted step
-            'hybrid', termination is early at first, after reached threshold will switch to late mode
-        :return:
-        """
-        cls.TERMINATION_MODE = mode
-
-    @classmethod
-    def set_start_point_mode(cls, mode):
-        """
-        define the initial position of the agent on a part, which will be chosen from some random points
-        :param mode:
-         'fixed' only one point,
-         'anchor' four anchor points,
-         'edge' edge points,
-          'all' all points, namely all of the triangle centers
-        :return:
-        """
-        cls.START_POINT_MODE = mode
-
-    @classmethod
-    def switch_turning_penalty(cls, on_off):
-        cls.TURNING_PENALTY = on_off
-
-    @classmethod
-    def switch_overlapping_penalty(cls, on_off):
-        cls.OVERLAP_PENALTY = on_off
-
     def __init__(self, urdf_root, with_robot=True, renders=False, render_video=False,
-                 rollout=False):
-        self._part_name = Part_Dict[self.Current_Part_No][0]
-        self._max_possible_point = Part_Dict[self.Current_Part_No][1]
+                 rollout=False, extra_config=None):
+        if extra_config is None:
+            extra_config = self.EXTRA_CONFIG
+        self._setup_extra_config(extra_config)
         self._with_robot = with_robot
         self._renders = renders
         self._render_video = render_video
@@ -258,6 +238,20 @@ class RobotGymEnv(gym.Env):
         if self._render_video:
             self._step_manager.close_video_recorder()
         self.close()
+
+    def _setup_extra_config(self, config):
+        self.RENDER_WIDTH = config['RENDER_WIDTH']
+        self.RENDER_HEIGHT = config['RENDER_HEIGHT']
+        self._part_name = Part_Dict[config['Part_NO']][0]
+        self._max_possible_point = Part_Dict[config['Part_NO']][1]
+        self.Expected_Episode_Length = config['Expected_Episode_Length']
+        self.EPISODE_MAX_LENGTH = config['EPISODE_MAX_LENGTH']
+        self.TERMINATION_MODE = config['TERMINATION_MODE']
+        self.SWITCH_THRESHOLD = config['SWITCH_THRESHOLD']
+        self.START_POINT_MODE = config['START_POINT_MODE']
+        self.TURNING_PENALTY = config['TURNING_PENALTY']
+        self.OVERLAP_PENALTY = config['OVERLAP_PENALTY']
+        self.COLOR_MODE = config['COLOR_MODE']
 
     def _setup_bullet_params(self):
         if self._renders:
@@ -311,8 +305,7 @@ class RobotGymEnv(gym.Env):
 
     def _augmented_observation(self):
         pose, _ = self.robot.get_observation()
-        # TODO: radius is a property of the paint gun, should be refactored to a gun object
-        normalized_pose = p.get_normalized_pose(self._part_id, pose, radius=0.051)
+        normalized_pose = p.get_normalized_pose(self._part_id, pose)
         if self.OBS_MODE == 'simple':
             return list(normalized_pose)
         status = p.get_observation(self._part_id, pose)
@@ -436,23 +429,12 @@ if __name__ == '__main__':
         #     env.step([i, 1])
         #     env.step([-i, -1])
         #     i += 0.01
-        # env.step([-0.5])
-        # env.step([1])
-        # env.step([-0.5])
-        # env.step([0.25])
-        # env.step([-0.75])
-        # env.step([1])
-        # env.step([0.5])
-        # env.step([-1])
-        # env.step([-0.5])
-        # env.step([0])
-        # env.step([0])
         # exit()
         for i in range(8):
             env.step(i)
             print(env.robot.get_angle_diff())
             env.step(8 - i)
-            env.reset()
+        env.reset()
         # env.step([1, 1])
         # for _ in range(20):
         #     env.step([0, 1])

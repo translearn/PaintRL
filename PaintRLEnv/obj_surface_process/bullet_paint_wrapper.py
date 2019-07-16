@@ -284,11 +284,13 @@ class BarycentricInterpolator:
 
 
 class TextWriter:
+
     TEXT_COLOR = (0, 0, 0)
     TEXT_SIZE = 1.5
     LINE_SPACE = 0.07
     TOTAL_LINES = 4
     """Write episode information into the bullet environment"""
+
     def __init__(self, urdf_id, principal_axes, axes_ranges):
         self._urdf_id = urdf_id
         self._text_id_buffer = []
@@ -381,16 +383,15 @@ class RGBColorHandler(ColorHandler):
 
 class HSIColorHandler(ColorHandler):
     """
-    the first channel, namely red channel changed from 0 to 255, simulate the intensity change in HSI color space
-    RED_NULL = (0, 0, 0)
-    RED_FULL = (255, 0, 0)
+    Pseudo-HSI color handler.
     """
     TARGET_MAX = int(255 / 10)
     BETA = 2
     debug_stack = {}
 
     def is_changed(self, texel):
-        return self._part.texels[texel] < self.TARGET_MAX
+        # TODO: bugs here, need to prevent the overflow.
+        return self._part.texels[texel] <= 0
 
     def change_pixel(self, i, j):
         """
@@ -414,7 +415,7 @@ class HSIColorHandler(ColorHandler):
         self._part.texels[texel] -= quantity
         self._part.texels[texel + 1] -= quantity
         self._part.texels[texel + 2] -= quantity
-        return quantity
+        return quantity / 255
 
     def change_pixels(self, center, points):
         x = [self._part.pixel_kd_tree[self._side].data[i] for i in points]
@@ -440,11 +441,6 @@ class Part:
     """
 
     HOOK_DISTANCE_TO_PART = 0.1
-    # Color to mark irrelevant pixels, used for preprocessing and calculate rewards
-    IRRELEVANT_COLOR = (0, 0, 0)
-    FRONT_COLOR = (0.75, 0.75, 0.75)
-    # FRONT_COLOR = (1, 1, 1)
-    BACK_COLOR = (0, 1, 0)
     # Placeholder in the kd-tree, no point can have such a coordinate
     IRRELEVANT_POSE = (10, 10, 10)
     # Refine the feedback of the end effector pose to grid representation, prevent part overfitting
@@ -586,10 +582,10 @@ class Part:
         if self._render:
             for side in self.profile:
                 target_pixels = [i for i in target_pixels if i not in self.profile[side]]
-            irr_color = self._get_color(self.IRRELEVANT_COLOR)
-            self.FRONT_COLOR = (0.75, 0.75, 0.75) if self._color_mode == 'RGB' else (1, 1, 1)
-            front_color = self._get_color(self.FRONT_COLOR)
-            back_color = self._get_color(self.BACK_COLOR)
+            irr_color = self._get_color((0, 0, 0))
+            front_color = (0.75, 0.75, 0.75) if self._color_mode == 'RGB' else (1, 1, 1)
+            front_color = self._get_color(front_color)
+            back_color = self._get_color((0, 1, 0))
             # front_color = back_color = irr_color = _get_color((0.75, 0.75, 0.75))  # _get_color((1, 1, 1))
             self.color_setter.init_part(irr_color, target_pixels)
             self.color_setter.init_part(back_color, self.profile[Side.back])
@@ -687,7 +683,7 @@ class Part:
                             break
 
     def _smooth_normal(self, bary, index, point_kd_tree):
-        nearest_barys = point_kd_tree.query_ball_point(bary.center_point, 0.05)
+        nearest_barys = point_kd_tree.query_ball_point(bary.center_point, PaintToolProfile.PAINT_RADIUS)
         # normals = [self.bary_list[bary_index].get_normal() for bary_index
         #            in nearest_barys if bary_index != index]
         normals = []
@@ -867,8 +863,6 @@ class Part:
         return delta_axis1 * avg_size / self._max_grid_size[self.side]
 
     def get_guided_point(self, point, normal, delta_axis1, delta_axis2):
-        # current_side = _get_side([-i for i in normal], self.front_normal)
-        current_side = Side.front
         point = list(point)
         delta_2 = delta_axis2 * self._length_width_ratio
         # delta_1 = self._get_delta_1(point, current_side, delta_axis1, delta_2)
@@ -882,7 +876,7 @@ class Part:
                 print('Error in Ray Test!!!')
             return None, normal
         surface_point = result[0][3]
-        pos, orn = self._get_hook_point(surface_point, current_side)
+        pos, orn = self._get_hook_point(surface_point, self.side)
         return pos, orn if orn else normal
 
     def initialize_texture(self, percent, mode=0, with_start_point=False):
@@ -968,7 +962,8 @@ class Part:
             self.grid_range[side] = {key: (value[1] - value[0]) for key, value in grid_dict.items()}
             self._max_grid_size[side] = max(self.grid_range[side].values())
 
-    def get_normalized_pose(self, pose, radius=0.05):
+    def get_normalized_pose(self, pose):
+        radius = PaintToolProfile.PAINT_RADIUS
         axis1_real = pose[self.principal_axes[0]]
         axis2_real = pose[self.principal_axes[1]]
         axis2_in_range = (axis2_real - self.ranges[1][0] + radius) / (self.ranges[1][1] -
@@ -1356,9 +1351,9 @@ def fast_paint(urdf_id, center):
     return _urdf_cache[urdf_id].fast_paint(center)
 
 
-def slow_paint(urdf_id, point):
+def slow_paint(urdf_id, points):
     """Preserved for performance comparison"""
-    return _urdf_cache[urdf_id].slow_paint(point)
+    return _urdf_cache[urdf_id].slow_paint(points)
 
 
 def get_job_status(urdf_id):
@@ -1385,8 +1380,8 @@ def get_texture_size(urdf_id):
     return _urdf_cache[urdf_id].get_texture_size()
 
 
-def get_normalized_pose(urdf_id, pose, radius=0.05):
-    return _urdf_cache[urdf_id].get_normalized_pose(pose, radius)
+def get_normalized_pose(urdf_id, pose):
+    return _urdf_cache[urdf_id].get_normalized_pose(pose)
 
 
 def get_observation(urdf_id, pose):

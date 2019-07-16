@@ -1,16 +1,30 @@
 import os
 from PaintRLEnv.robot_gym_env import RobotGymEnv
 
+EXTRA_CONFIG = {
+    'RENDER_HEIGHT': 720,
+    'RENDER_WIDTH': 960,
+
+    'Part_NO': 1,
+    'Expected_Episode_Length': 245,
+    'EPISODE_MAX_LENGTH': 245,
+
+    'TERMINATION_MODE': 'late',
+    'SWITCH_THRESHOLD': 0.9,
+
+    'START_POINT_MODE': 'fixed',
+    'TURNING_PENALTY': False,
+    'OVERLAP_PENALTY': False,
+    'COLOR_MODE': 'RGB',
+}
+
 
 def simple_rgb_zigzag():
-    RobotGymEnv.set_start_point_mode('fixed')
     RobotGymEnv.change_action_mode(1, 'discrete', 4)
     RobotGymEnv.change_obs_mode('discrete', 4)
-    RobotGymEnv.switch_turning_penalty(False)
-    RobotGymEnv.set_termination_mode('early')
-    RobotGymEnv.COLOR_MODE = 'RGB'
+
     with RobotGymEnv(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'PaintRLEnv'), with_robot=False,
-                     renders=True, render_video=False, rollout=True) as env:
+                     renders=True, render_video=False, rollout=True, extra_config=EXTRA_CONFIG) as env:
         horizontal_move = 0
         up = True
         done = False
@@ -49,14 +63,11 @@ def simple_rgb_zigzag():
 
 
 def simple_rgb1_zigzag():
-    RobotGymEnv.set_start_point_mode('fixed')
     RobotGymEnv.change_action_mode(1, 'discrete', 4)
     RobotGymEnv.change_obs_mode('simple', 4)
-    RobotGymEnv.switch_turning_penalty(False)
-    RobotGymEnv.set_termination_mode('late')
-    RobotGymEnv.COLOR_MODE = 'RGB'
+
     with RobotGymEnv(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'PaintRLEnv'), with_robot=False,
-                     renders=True, render_video=False, rollout=True) as env:
+                     renders=True, render_video=False, rollout=True, extra_config=EXTRA_CONFIG) as env:
         horizontal_move = 0
         up = True
         done = False
@@ -94,14 +105,11 @@ def simple_rgb1_zigzag():
 
 
 def simple_rgb_profile_zigzag():
-    RobotGymEnv.set_start_point_mode('fixed')
     RobotGymEnv.change_action_mode(1, 'discrete', 4)
     RobotGymEnv.change_obs_mode('grid', 10)
-    RobotGymEnv.switch_turning_penalty(False)
-    RobotGymEnv.set_termination_mode('late')
-    RobotGymEnv.COLOR_MODE = 'RGB'
+
     with RobotGymEnv(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'PaintRLEnv'), with_robot=False,
-                     renders=False, render_video=False, rollout=False) as env:
+                     renders=False, render_video=False, rollout=False, extra_config=EXTRA_CONFIG) as env:
         for _ in range(100):
             env.reset()
             horizontal_move = 0
@@ -141,14 +149,12 @@ def simple_rgb_profile_zigzag():
 
 
 def simple_hsi_zigzag():
-    RobotGymEnv.set_start_point_mode('fixed')
+    EXTRA_CONFIG['COLOR_MODE'] = 'HSI'
     RobotGymEnv.change_action_mode(2, 'continuous')
     RobotGymEnv.change_obs_mode('simple', 4)
-    RobotGymEnv.switch_turning_penalty(True)
-    RobotGymEnv.set_termination_mode('late')
-    RobotGymEnv.COLOR_MODE = 'HSI'
+
     with RobotGymEnv(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'PaintRLEnv'), with_robot=False,
-                     renders=True, render_video=False, rollout=True) as env:
+                     renders=True, render_video=False, rollout=True, extra_config=EXTRA_CONFIG) as env:
         horizontal_move = 0
         up = True
         done = False

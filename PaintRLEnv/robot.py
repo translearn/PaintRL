@@ -63,7 +63,6 @@ def _get_beta_plain(beta, point_density):
         angle_resolution = 2 * math.pi / distribution[i] if distribution[i] else 0
         for j in range(distribution[i]):
             r = uniform(lower_radius, upper_radius)
-            # r = i * resolution * 0.707
             theta = j * angle_resolution
             coordinate = pol2cart(r, theta)
             paint_plain.append((*coordinate, target_ray_plane))
@@ -115,6 +114,7 @@ def _clip_by_value(v):
 
 
 def _regularize_pose_orn(old_pos, old_orn, new_pos, new_orn, target_len):
+    # Limit the spatial distance of an action, in case two orientation have a big difference
     if not new_pos:
         return new_pos, new_orn
     diff = [b - a for a, b in zip(old_pos, new_pos)]
@@ -125,7 +125,6 @@ def _regularize_pose_orn(old_pos, old_orn, new_pos, new_orn, target_len):
         diff_vec = [a * ratio_old for a in diff]
         pose = [a + b for a, b in zip(old_pos, diff_vec)]
         orn = [a * ratio_old + b * ratio_new for a, b in zip(old_orn, new_orn)]
-        # orn = new_orn
         orn = p.normalize(orn)
         return pose, orn
     else:
@@ -133,7 +132,6 @@ def _regularize_pose_orn(old_pos, old_orn, new_pos, new_orn, target_len):
         ratio_new = (target_len - actual_len) / target_len
         pose = new_pos
         orn = [a * ratio_old + b * ratio_new for a, b in zip(old_orn, new_orn)]
-        # orn = new_orn
         orn = p.normalize(orn)
         return pose, orn
 
@@ -157,8 +155,6 @@ def direction_normalize(action):
     x, y = abs(action[0]), abs(action[1])
     if x == 0 and y == 0:
         return x, y
-    # tan_action = x / y if x < y else y / x
-    # normalized_norm = rho / np.sqrt(1 + tan_action)
     normalized_action = pol2cart(max(x, y), phi)
     # print(np.linalg.norm(normalized_action))
     return normalized_action
@@ -166,8 +162,6 @@ def direction_normalize(action):
 
 class Robot:
 
-    DELTA_X = 0.05
-    DELTA_Y = 0.05
     PAINT_PER_ACTION = 5
     IN_POSE_TOLERANCE = 0.02
     NOT_ON_PART_TERMINATE_STEPS = 1000
@@ -235,7 +229,7 @@ class Robot:
     def _refresh_robot_pose(self, pos=(0, 0, 0), orn=(0, 0, 0, 1)):
         if self._with_robot:
             state = p.getLinkState(self.robot_id, self._end_effector_idx)
-            # change center of mess to wrist center.
+            # change center of mess to the wrist center.
             diff_in_end_effector = [-i for i in state[2]]
             self._pose, self._orn = _get_tcp_point_in_world(state[0], state[1], diff_in_end_effector)
         else:
@@ -387,8 +381,8 @@ class Robot:
                 action[i] = _clip_by_value(a)
                 # raise ValueError('Action {} out of range!'.format(action))
         action = direction_normalize(action)
-        delta_axis1 = action[0] * self.DELTA_X
-        delta_axis2 = action[1] * self.DELTA_Y
+        delta_axis1 = action[0] * p.PaintToolProfile.STEP_SIZE
+        delta_axis2 = action[1] * p.PaintToolProfile.STEP_SIZE
         self._set_turning_angle(delta_axis1, delta_axis2)
         current_on_part_counter = self._terminate_counter
         act, poses = self._get_actions(part_id, delta_axis1, delta_axis2)
@@ -419,7 +413,6 @@ class Robot:
             #     self._step_manager.step_simulation()
             possible_pixels.extend(paint_succeed_data[0])
             succeeded_counter += paint_succeed_data[1]
-            # self._draw_tcp_orn()
         pixel_counter = len(set(possible_pixels))
         success_rate = succeeded_counter / pixel_counter if possible_pixels else 0
         if self._terminate_counter - current_on_part_counter >= self.PAINT_PER_ACTION and pixel_counter == 0:
@@ -444,7 +437,3 @@ if __name__ == '__main__':
     plain = _get_beta_plain(2, 14431)
     debug_plain(plain)
     debug_pixel()
-    print(1)
-    # current_dir = os.path.dirname(os.path.realpath(__file__))
-    # franka_urdf_path = os.path.join(current_dir, 'urdf', 'franka_description', 'robots', 'panda_arm.urdf')
-    # f = Robot(None, franka_urdf_path)

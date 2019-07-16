@@ -88,20 +88,38 @@ def _make_env_config(is_train=True):
         'renders': False,
         'render_video': False,
         'rollout': False,
+        'extra_config': {
+            'RENDER_HEIGHT': 720,
+            'RENDER_WIDTH': 960,
+
+            'Part_NO': 0,
+            'Expected_Episode_Length': 245,
+            'EPISODE_MAX_LENGTH': 245,
+
+            # 'early', termination controlled by average reward
+            # 'late', termination clipped by max permitted step
+            # 'hybrid', termination is early at first, after reached threshold will switch to late mode
+            'TERMINATION_MODE': 'late',
+            # Switch theshold in hybrid mode
+            'SWITCH_THRESHOLD': 0.9,
+
+            # 'fixed' only one point,
+            # 'anchor' four anchor points,
+            # 'edge' edge points,
+            # 'all' all points, namely all of the triangle centers
+            'START_POINT_MODE': 'anchor',
+            'TURNING_PENALTY': False,
+            'OVERLAP_PENALTY': False,
+            'COLOR_MODE': 'RGB',
+        }
     }
     if not is_train:
         env['renders'] = True
         env['with_robot'] = False
         env['rollout'] = True
-        RobotGymEnv.set_termination_mode('late')
-        RobotGymEnv.EPISODE_MAX_LENGTH = 300
+        env['extra_config']['TERMINATION_MODE'] = 'late'
+        env['extra_config']['EPISODE_MAX_LENGTH'] = 300
     return env
-
-
-def _adjust_obs_action_space(obs_mode, act_shape, act_mode, act_dis_gra=18, termination_mode='late'):
-    RobotGymEnv.change_obs_mode(mode=obs_mode)
-    RobotGymEnv.change_action_mode(shape=act_shape, mode=act_mode, discrete_granularity=act_dis_gra)
-    RobotGymEnv.set_termination_mode(termination_mode)
 
 
 def main(algorithm, config):
