@@ -1,5 +1,5 @@
 import os
-from PaintRLEnv.robot_gym_env import RobotGymEnv
+from PaintRLEnv.robot_gym_env import PaintGymEnv
 
 EXTRA_CONFIG = {
     'RENDER_HEIGHT': 720,
@@ -20,10 +20,10 @@ EXTRA_CONFIG = {
 
 
 def simple_rgb_spiral():
-    RobotGymEnv.change_action_mode(1, 'discrete', 4)
-    RobotGymEnv.change_obs_mode('simple', 4)
+    PaintGymEnv.change_action_mode(1, 'discrete', 4)
+    PaintGymEnv.change_obs_mode('simple', 4)
 
-    with RobotGymEnv(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'PaintRLEnv'), with_robot=False,
+    with PaintGymEnv(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'PaintRLEnv'), with_robot=False,
                      renders=True, render_video=False, rollout=True, extra_config=EXTRA_CONFIG) as env:
         start_points = getattr(env, '_start_points')
         axis_1, axis_2 = [], []
@@ -57,10 +57,10 @@ def simple_rgb_spiral():
 
 def simple_hsi_spiral():
     EXTRA_CONFIG['COLOR_MODE'] = 'HSI'
-    RobotGymEnv.change_action_mode(1, 'discrete', 4)
-    RobotGymEnv.change_obs_mode('simple', 4)
+    PaintGymEnv.change_action_mode(1, 'discrete', 4)
+    PaintGymEnv.change_obs_mode('simple', 4)
 
-    with RobotGymEnv(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'PaintRLEnv'), with_robot=False,
+    with PaintGymEnv(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'PaintRLEnv'), with_robot=False,
                      renders=True, render_video=False, rollout=True, extra_config=EXTRA_CONFIG) as env:
         start_points = getattr(env, '_start_points')
         axis_1, axis_2 = [], []

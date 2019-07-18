@@ -5,7 +5,7 @@ import ray
 import ray.tune as tune
 from ray.rllib.models import ModelCatalog, Model
 from ray.rllib.rollout import run
-from PaintRLEnv.robot_gym_env import RobotGymEnv
+from PaintRLEnv.robot_gym_env import PaintGymEnv
 
 
 class PaintModel(Model):
@@ -23,7 +23,7 @@ class PaintModel(Model):
 class PaintLayerModel(PaintModel):
 
     def _build_layers_v2(self, input_dict, num_outputs, options):
-        num_obs_inputs = RobotGymEnv.observation_space.shape[0] - 2
+        num_obs_inputs = PaintGymEnv.observation_space.shape[0] - 2
         obs = tf.slice(input_dict['obs'], [0, 0], [1, num_obs_inputs])
         pos = tf.slice(input_dict['obs'], [0, num_obs_inputs], [1, 2])
         fc1 = tf.layers.dense(obs, 256, activation=tf.nn.relu, name='fc1')
@@ -116,6 +116,7 @@ def _make_env_config(is_train=True):
     if not is_train:
         env['renders'] = True
         env['with_robot'] = False
+        env['render_video'] = False
         env['rollout'] = True
         env['extra_config']['TERMINATION_MODE'] = 'late'
         env['extra_config']['EPISODE_MAX_LENGTH'] = 300
@@ -132,7 +133,7 @@ def main(algorithm, config):
     ModelCatalog.register_custom_model('paint_layer_model', PaintLayerModel)
 
     def env_creator(env_config):
-        return RobotGymEnv(**env_config)
+        return PaintGymEnv(**env_config)
     tune.registry.register_env('robot_gym_env', env_creator)
 
     experiment_config = {

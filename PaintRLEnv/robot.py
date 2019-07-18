@@ -2,7 +2,7 @@ import os
 import math
 import numpy as np
 from random import uniform
-import obj_surface_process.bullet_paint_wrapper as p
+import bullet_paint_wrapper as p
 
 
 def _random_string(length):
@@ -167,6 +167,9 @@ class Robot:
     NOT_ON_PART_TERMINATE_STEPS = 1000
 
     BETA = 2
+
+    # Normal or fast
+    PAINT_METHOD = 'fast'
 
     def __init__(self, step_manager, urdf_path, pos=(0, 0, 0), orn=(0, 0, 0, 1),
                  with_robot=True, capture_texture=False):
@@ -408,9 +411,10 @@ class Robot:
                 # Robot in singularity point or given point is out of working space
                 print('not in pose!')
 
-            # Switch between two versions of paint method
-            # paint_succeed_data = self._paint(part_id)
-            paint_succeed_data = self._fast_paint(part_id)
+            if self.PAINT_METHOD == 'fast':
+                paint_succeed_data = self._fast_paint(part_id)
+            else:
+                paint_succeed_data = self._paint(part_id)
 
             if self._capture_texture:
                 self.capture_texture_image(part_id)

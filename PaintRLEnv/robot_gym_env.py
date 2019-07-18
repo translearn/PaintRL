@@ -1,11 +1,9 @@
 import os
-import sys
-sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import math
 import time
 from random import randint
 import numpy as np
-import obj_surface_process.bullet_paint_wrapper as p
+import bullet_paint_wrapper as p
 import pybullet_data
 import gym
 from gym import spaces
@@ -119,7 +117,7 @@ Part_Dict = {
 }
 
 
-class RobotGymEnv(gym.Env):
+class PaintGymEnv(gym.Env):
 
     metadata = {'render.modes': ['human', 'rgb_array'], 'video.frames_per_second': 30}
 
@@ -145,7 +143,7 @@ class RobotGymEnv(gym.Env):
         # 'late', termination clipped by max permitted step
         # 'hybrid', termination is early at first, after reached threshold will switch to late mode
         'TERMINATION_MODE': 'late',
-        # Switch theshold in hybrid mode
+        # Switch threshold in hybrid mode
         'SWITCH_THRESHOLD': 0.9,
 
         # 'fixed' only one point,
@@ -425,7 +423,7 @@ class RobotGymEnv(gym.Env):
 
 
 if __name__ == '__main__':
-    with RobotGymEnv(os.path.dirname(os.path.realpath(__file__)), with_robot=False,
+    with PaintGymEnv(os.path.dirname(os.path.realpath(__file__)), with_robot=False,
                      renders=True, render_video=False, rollout=True) as env:
         # i = 0
         # while i <= 1:

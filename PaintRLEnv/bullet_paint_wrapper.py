@@ -174,7 +174,7 @@ class BarycentricInterpolator:
         return np.linalg.norm(np.cross(self._v0, self._v1)) / 2
 
     def _valid_area(self):
-        return self.area >= BarycentricInterpolator.MIN_AREA
+        return self.area >= self.MIN_AREA
 
     def get_min_uvw(self, point):
         bary_a, bary_b, bary_c = self._get_bary_coordinate(point)
