@@ -36,8 +36,6 @@ Case of application: Spray painting
   <img src="assets/images/suzuki_anatomy.png"/>
 </p>
 
-![paint_speed](assets/images/suzuki_anatomy.png)
-
 <a name="data_generation"/>
 ## Data Generation <a href="#toc" class="top-link">[Top]</a>
 
