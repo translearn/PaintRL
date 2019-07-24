@@ -47,27 +47,45 @@ We address the challenging task to collect training data for industrial tasks by
 ## Spray painting simulation <a href="#toc" class="top-link">[Top]</a>
 
 + The paint flux of a spray gun is modeled by a beta distribution
-![paint_speed](assets/images/beta_distribution.jpg)
+
+<p align="center">
+  <img src="assets/images/beta_distribution.jpg" width="50%"/>
+</p>
+
 + Impact points of paint droplets are calculated with ray-surface intersection tests provided by PyBullet
-![paint_speed](assets/images/paint_cone.png)
+
+<p align="center">
+  <img src="assets/images/paint_cone.png" width="50%"/>
+</p>
+
 + The robot moves orthogonally to the surface normals of the workpiece
-![paint_speed](assets/images/paint_stroke.png)
+
+<p align="center">
+  <img src="assets/images/paint_stroke.png"/>
+</p>
+
 
 <a name="experiments"/>
 ## Experiments <a href="#toc" class="top-link">[Top]</a>
 
-The coverage path planning is formalized as a markov decision process $(S, A, P_a, R_a)$
+The coverage path planning is formalized as a markov decision process (S, A, P<sub>a</sub>, R<sub>a</sub>)
 
 ### Observation:
 
 + Pose of the spray gun
 + Ratios of unpainted pixels and total pixels for circular sectors around the spray gun
-![paint_speed](assets/images/section_obs_door.png)
+
+<p align="center">
+  <img src="assets/images/section_obs_door.png" width="50%"/>
+</p>
 
 ### Actions:
 
 + Discrete actions which control the direction of the robot movement
-![paint_speed](assets/images/action_discrete.png)
+
+<p align="center">
+  <img src="assets/images/action_discrete.png" width="50%"/>
+</p>
 
 ### Reward:
 
@@ -80,7 +98,9 @@ The coverage path planning is formalized as a markov decision process $(S, A, P_
 + Quadratic sheet
 + Zigzag pattern
 
-![paint_speed](assets/images/zigzag_hsi.png)
+<p align="center">
+  <img src="assets/images/zigzag_hsi.png" width="50%"/>
+</p>
 
 <a name="results"/>
 ## Results <a href="#toc" class="top-link">[Top]</a>
@@ -88,7 +108,7 @@ The coverage path planning is formalized as a markov decision process $(S, A, P_
 + Generated path leads to full paint coverage of a car door
 + Time equivalent to baseline
 
-Figure of the results, video capture of the rollout
+**Figure of the results, video capture of the rollout**
 
 <a name="transfer"/>
 ## Sim2real transfer  <a href="#toc" class="top-link">[Top]</a>
@@ -99,4 +119,4 @@ Projection mapping opens up new possibilities to:
 + collect human demonstrations
 + capture real-world images
 
-The sim2real video should be linked here.
+**The sim2real video should be linked here.**
