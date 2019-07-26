@@ -110,6 +110,8 @@ The coverage path planning is formalized as a markov decision process (S, A, P<s
 
 **Figure of the results, video capture of the rollout**
 
+<iframe width="853" height="480" src="https://www.youtube-nocookie.com/embed/TadnJeuAY6I?rel=0" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+
 <a name="transfer"/>
 ## Sim2real transfer  <a href="#toc" class="top-link">[Top]</a>
 
