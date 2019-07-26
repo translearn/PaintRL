@@ -119,4 +119,6 @@ Projection mapping opens up new possibilities to:
 + collect human demonstrations
 + capture real-world images
 
-**The sim2real video should be linked here.**
+<div class="embed-container">
+  <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/nJVLpEk1MOs?rel=0" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+</div>
