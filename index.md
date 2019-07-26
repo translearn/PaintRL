@@ -119,6 +119,6 @@ Projection mapping opens up new possibilities to:
 + collect human demonstrations
 + capture real-world images
 
-<div class="embed-container">
-  <iframe width="1280" height="720" src="https://www.youtube-nocookie.com/embed/nJVLpEk1MOs?rel=0" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+<div class="embed-container" align="center">
+  <iframe width="853" height="480" src="https://www.youtube-nocookie.com/embed/nJVLpEk1MOs?rel=0" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
 </div>
