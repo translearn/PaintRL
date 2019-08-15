@@ -7,34 +7,39 @@ layout: default
 <a name="toc"/>
 
 <div style="text-align: center; font-size: 0.8em;">
-<a href="#abstract">Abstract</a> &middot;
+<a href="#introduction">Introduction</a> &middot;
 <a href="#motivation">Motivation</a> &middot;
+<a href="#disclaimer">Disclaimer</a> &middot;
 <a href="#data_generation">Data generation</a> &middot;
 <a href="#simulation">Simulation</a> &middot;
 <a href="#experiments">Experiments</a> &middot;
 <a href="#results">Results</a> &middot;
-<a href="#transfer">Sim2real transfer </a>
+<a href="#transfer">Sim2real transfer</a>
 </div>
 
 ----
 
-<a name="abstract"/>
-## Abstract <a href="#toc" class="top-link">[Top]</a>
+<a name="introduction"/>
+## Introduction <a href="#toc" class="top-link">[Top]</a>
 
-We present PaintRL, a framework that enables research on optimizing industrial spray painting for arbitrary objects with reinforcement learning. PaintRL implements a toolkit to simulate and visualize spray painting based on the physics engine PyBullet. By means of this toolkit, we train neural networks to predict coverage paths and evaluate the results on two objects: a quadratic sheet and a real car door. Our initial results show that the generated coverage path of the car door performs on a par with a manually implemented zigzag baseline. To allow sim2real transfer for non-resettable tasks like spray painting, we replace paint by light using projection mapping. This approach opens up new possibilities to visualize the results from simulation, collect human demonstrations and capture real-world images. PaintRL is part of our endeavor to utilize the recent advances in deep reinforcement learning for economically important industrial tasks.
+Spray painting is a widely used process for surface treatment especially in the metal industry. The processed parts obtain improved surface properties such as corrosion resistance and electric insulation. As a result of mass production and volatile organic solvents in the paint material, spray painting has been taken over by industrial robots for a long time.
+
+PaintRL is a pure Python framework based on PyBullet, it supports the trajectory planning of industrial spray painting with reinforcement learning in simulation. Besides, classic planning algorithms such as [Andulkar et. al](https://linkinghub.elsevier.com/retrieve/pii/S0278612515000229) and [Chen and Xi](http://link.springer.com/10.1007/s00170-006-0746-5) is also compatible with the framework.
+
+The paint can be further replaced by light via projection mapping to allow sim2real transfer (see <a href="#transfer">Sim2real transfer</a>), which opens up new possibilities to visualize the results from simulation, collect human demonstrations and capture real-world images. 
 
 <a name="motivation"/>
 ## Motivation <a href="#toc" class="top-link">[Top]</a>
 
-Industry 4.0 requires flexible line production. However, teaching of the robot trajectory is a trial and error process which relies heavily on the experience of the domain experts. Hence, reinforcement learning is used to
+Industry 4.0 requires flexible line production. However, the teaching of the robot trajectory is a trial and error process which relies heavily on the experience of the domain experts. Taken the model below as analysis, trajectories for processing each part of the model should be programmed manually. 
 
-+ avoid manual programming for each individual part
-+ allow product customizations
-
-Case of application: Spray painting
 <p align="center">
   <img src="assets/images/suzuki_anatomy.png"/>
 </p>
+
+In terms of spray painting, the main objective is to achieve uniform coating thickness with minimal material cost and shorter process time. Therefore many paint tools charge the paint material electrostatically and shape the form of the paint with air flow, which introduces several affections such as and gravity field, the speed received of the robot movement, external wind blows, uneven part surface profile. As a result, the trajectory planning for spray painting is still challenging.
+
+The trajectory generation of spray painting has been studied over the last few decades. Beside the two publications mentioned above, the work from [Sheng et al.](http://ieeexplore.ieee.org/document/1458717/) is also widely adopted and cited. However, nowadays the surface of automobiles became more uneven, which makes the simplifications made in those publications less plausible. RL, especially DRL is a promising approach that is capable to solve problems under sophisticated constraints. It is therefore selected to explore the effective trajectory planning of spray painting.
 
 <a name="data_generation"/>
 ## Data Generation <a href="#toc" class="top-link">[Top]</a>
@@ -42,6 +47,14 @@ Case of application: Spray painting
 We address the challenging task to collect training data for industrial tasks by
 + developing a fast and scalable spray painting simulation
 + replacing paint with light to collect real-world data
+
+<a name="disclaimer"/>
+## Disclaimer <a href="#toc" class="top-link">[Top]</a>
+
+The primary target of this project is to perform trajectory planning and optimization for spray painting in a simulated environment. Since CAD mesh model is available for most industrial parts, it is taken as input of the planning algorithm, while the 6D coordinates of the planned trajectory is the output.
+
+To use the planned trajectory in reality, the robot type could be selected according to the scale of the part and the tool. The reachability could be validated by calculating the inverse kinematics of each point on the trajectory.
+
 
 <a name="simulation"/>
 ## Spray painting simulation <a href="#toc" class="top-link">[Top]</a>
