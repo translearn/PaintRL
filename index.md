@@ -41,13 +41,6 @@ In terms of spray painting, the main objective is to achieve uniform coating thi
 
 The trajectory generation of spray painting has been studied over the last few decades. Beside the two publications mentioned above, the work from [Sheng et al.](http://ieeexplore.ieee.org/document/1458717/) is also widely adopted and cited. However, nowadays the surface of automobiles became more uneven, which makes the simplifications made in those publications less plausible. RL, especially DRL is a promising approach that is capable to solve problems under sophisticated constraints. It is therefore selected to explore the effective trajectory planning of spray painting.
 
-<a name="data_generation"/>
-## Data Generation <a href="#toc" class="top-link">[Top]</a>
-
-We address the challenging task to collect training data for industrial tasks by
-+ developing a fast and scalable spray painting simulation
-+ replacing paint with light to collect real-world data
-
 <a name="disclaimer"/>
 ## Disclaimer <a href="#toc" class="top-link">[Top]</a>
 
@@ -55,28 +48,63 @@ The primary target of this project is to perform trajectory planning and optimiz
 
 To use the planned trajectory in reality, the robot type could be selected according to the scale of the part and the tool. The reachability could be validated by calculating the inverse kinematics of each point on the trajectory.
 
+<a name="data_generation"/>
+## Data Generation <a href="#toc" class="top-link">[Top]</a>
+
+The data used for learning can be generated via interacting with the simulation environment or collected from the real industrial scenario.
+
+In current PaintRL, several efforts were made in improving the sampling efficient. Since the hyperparameters in RL algorithms could be tuned regularly, a quick feedback loop enables effective improvement of the parameter adjustment and thus is a significant factor for a successful learning.
+
+Based on the sim2real transfer (see <a href="#transfer">Sim2real transfer</a>), real-world data can be collected by replacing paint with light by means of images.
 
 <a name="simulation"/>
 ## Spray painting simulation <a href="#toc" class="top-link">[Top]</a>
 
-+ The paint flux of a spray gun is modeled by a beta distribution
+The planning system takes the CAD model of the workpiece, the spray tool model, some constraints and optimization criteria as inputs, and outputs the tool trajectory. Each of the components are implemented separately in this framework.
+
+### Tool model
+
+The figure below shows a side view of a paint gun.
 
 <p align="center">
-  <img src="assets/images/beta_distribution.jpg" width="50%"/>
+  <img src="assets/images/RotationBell_old.png" width="50%"/>
 </p>
 
-+ Impact points of paint droplets are calculated with ray-surface intersection tests provided by PyBullet
+The profile of the paint can be approximated with a cone. In the implementation, the paint profile is treated as stationary, deformations caused by external conditions will not be considered.
 
 <p align="center">
   <img src="assets/images/paint_cone.png" width="50%"/>
 </p>
 
-+ The robot moves orthogonally to the surface normals of the workpiece
+It is easy to see that the atomized paint is not distributed uniformly. The beta distribution model from [Balkan and Arikan](https://www.sciencedirect.com/science/article/pii/S0093641399000695) is employed to model the non-uniformity of the paint. An obvious advantage of this model is the flexibility with different gun models and external working conditions. 
 
 <p align="center">
-  <img src="assets/images/paint_stroke.png"/>
+  <img src="assets/images/beta_distribution.jpg" width="50%"/>
 </p>
 
+### Surface model
+
+The triangle mesh model is used to represent the workpieces in the framework. As an example, one door model is shown below. Although inaccurate and excessive in file size, this representation is quick to process, straightforward and easy to analyze.
+
+<p align="center">
+  <img src="assets/images/door_mesh_normal.png" width="50%"/>
+</p>
+
+[Wavefront .obj file](https://en.wikipedia.org/wiki/Wavefront_.obj_file) is used as the standard format for mesh model due to its simplicity in both storage (plain text is friendly to process) and content organization. Moreover, the UV coordinate of a mesh object can be stored in one file, this facilitates further simulation operations in the framework. 
+
+### Mapping paint beams to the workpiece
+
+The UV mapping is employed to dress the 3D object surface with a 2D texture image, so as to facilitate the visualization and thickness calculation of spray painting. As can be seen in the figure below, this process takes a raw 3D mesh file and a clean image file as input and yields a mapped 3D mesh object. After this process, the image is associated with the 3D model, and a paint beam can leave its spoor by changing the pixel value of the corresponding texture image.
+
+<p align="center">
+  <img src="assets/images/door_mesh_normal.png" width="50%"/>
+</p>
+
+The impact points of paint droplets are calculated with ray-surface intersection tests provided by PyBullet, while the movements are guided by the surface normals of the workpiece.
+
+<p align="center">
+  <img src="assets/images/uv_workflow.png"/>
+</p>
 
 <a name="experiments"/>
 ## Experiments <a href="#toc" class="top-link">[Top]</a>
