@@ -13,7 +13,7 @@ layout: default
 <a href="#data_generation">Data generation</a> &middot;
 <a href="#simulation">Simulation</a> &middot;
 <a href="#experiments">Experiments</a> &middot;
-<a href="#results">Results</a> &middot;
+<a href="#results">Current results</a> &middot;
 <a href="#transfer">Sim2real transfer</a>
 </div>
 
@@ -155,27 +155,26 @@ According to the survey of [Chen et al.](https://ieeexplore.ieee.org/document/46
   <img src="assets/images/path_patterns.png" width="100%"/>
 </p>
 
-Both of the path patterns can be programmed as baseline. In our experiment, we took the zigzag pattern as the baseline.
+Both of the path patterns can be programmed as baseline. In our current experiment, we took the zigzag pattern as the baseline.
 
 <a name="results"/>
-## Results <a href="#toc" class="top-link">[Top]</a>
+## Current achieved results <a href="#toc" class="top-link">[Top]</a>
 
-+ Generated path leads to full paint coverage of a car door
-+ Time equivalent to baseline
+In the experiment, Proximal Policy Optimization (PPO) with four discrete actions (move up, left, down, right) was used to train a fully connected neural network consisting of two hidden layers with 256 and 128 neurons. After training the networks for two million steps on a car door and a quadratic sheet, the achieved coverage ratio and episode length ratio are shown in the figure below. For both workpieces, 235 action steps are required to achieve full coverage with the baseline.
 
-**Figure of the results, video capture of the rollout**
+<p align="center">
+  <img src="assets/images/results.png" width="100%"/>
+</p>
+
+The video below is a rollout of the learned policy on the car door.
 
 <iframe width="853" height="480" src="https://www.youtube-nocookie.com/embed/TadnJeuAY6I?rel=0" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
 
 <a name="transfer"/>
-## Sim2real transfer  <a href="#toc" class="top-link">[Top]</a>
+## Sim2real transfer <a href="#toc" class="top-link">[Top]</a>
 
-Projection mapping opens up new possibilities to:
+We use the projection mapping software [Splash](https://github.com/paperManu/splash) to transfer the results from simulation to a real car door. In terms of the hardware, an ultra short throw projector is required in order to avoid shadowing. The transfer is demonstrated with the video below.
 
-+ visualize the results from simulation
-+ collect human demonstrations
-+ capture real-world images
+<iframe width="853" height="480" src="https://www.youtube-nocookie.com/embed/nJVLpEk1MOs?rel=0" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
 
-<div class="embed-container" align="center">
-  <iframe width="853" height="480" src="https://www.youtube-nocookie.com/embed/nJVLpEk1MOs?rel=0" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-</div>
+In future work, we intend to use projection mapping to gather human demonstrations by guiding the end effector of a robot and capture real-world images to learn a policy from pictures rather than a low-dimensional observation. 
