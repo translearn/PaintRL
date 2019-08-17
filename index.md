@@ -26,7 +26,7 @@ Spray painting is a widely used process for surface treatment especially in the 
 
 PaintRL is a pure Python framework based on PyBullet, it supports the trajectory planning of industrial spray painting with reinforcement learning in simulation. Besides, classic planning algorithms such as [Andulkar et. al](https://linkinghub.elsevier.com/retrieve/pii/S0278612515000229) and [Chen and Xi](http://link.springer.com/10.1007/s00170-006-0746-5) is also compatible with the framework.
 
-The paint can be further replaced by light via projection mapping to allow sim2real transfer (see <a href="#transfer">Sim2real transfer</a>), which opens up new possibilities to visualize the results from simulation, collect human demonstrations and capture real-world images. 
+The paint can be further replaced by light via projection mapping to allow sim2real transfer (see <a href="#transfer">Sim2real transfer</a>), which opens up new possibilities to visualize the results from simulation, collects human demonstrations and captures real-world images. 
 
 <a name="motivation"/>
 ## Motivation <a href="#toc" class="top-link">[Top]</a>
@@ -64,7 +64,7 @@ The planning system takes the CAD model of the workpiece, the spray tool model, 
 
 ### Tool model
 
-The figure below shows a side view of a paint gun.
+The figure below (from [Mark et al.](http://www.dl.begellhouse.com/journals/6a7c7e10642258cc,720d793326544e5b,474bc4bc3d1f5e8e.html)) shows a side view of a paint gun in industrial production.
 
 <p align="center">
   <img src="assets/images/RotationBell_old.png" width="50%"/>
@@ -76,7 +76,7 @@ The profile of the paint can be approximated with a cone. In the implementation,
   <img src="assets/images/paint_cone.png" width="50%"/>
 </p>
 
-It is easy to see that the atomized paint is not distributed uniformly. The beta distribution model from [Balkan and Arikan](https://www.sciencedirect.com/science/article/pii/S0093641399000695) is employed to model the non-uniformity of the paint. An obvious advantage of this model is the flexibility with different gun models and external working conditions. 
+It is easy to see that the atomized paint is not distributed uniformly. The beta distribution model from [Balkan and Arikan](https://www.sciencedirect.com/science/article/pii/S0093641399000695) is employed to model the non-uniformity of the paint. An obvious advantage of this model is the flexibility with different gun models and external working conditions. Below is a illustration of the model (from [Andulkar et al.](https://linkinghub.elsevier.com/retrieve/pii/S0278612515000229)).
 
 <p align="center">
   <img src="assets/images/beta_distribution.jpg" width="50%"/>
