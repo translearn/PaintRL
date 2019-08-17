@@ -97,7 +97,7 @@ The triangle mesh model is used to represent the workpieces in the framework. As
 The UV mapping is employed to dress the 3D object surface with a 2D texture image, so as to facilitate the visualization and thickness calculation of spray painting. As can be seen in the figure below, this process takes a raw 3D mesh file and a clean image file as input and yields a mapped 3D mesh object. After this process, the image is associated with the 3D model, and a paint beam can leave its spoor by changing the pixel value of the corresponding texture image.
 
 <p align="center">
-  <img src="assets/images/door_mesh_normal.png" width="50%"/>
+  <img src="assets/images/paint_stroke.png" width="50%"/>
 </p>
 
 The impact points of paint droplets are calculated with ray-surface intersection tests provided by PyBullet, while the movements are guided by the surface normals of the workpiece.
@@ -109,39 +109,53 @@ The impact points of paint droplets are calculated with ray-surface intersection
 <a name="experiments"/>
 ## Experiments <a href="#toc" class="top-link">[Top]</a>
 
-The coverage path planning is formalized as a markov decision process (S, A, P<sub>a</sub>, R<sub>a</sub>)
+
+The coverage path planning is formalized as a markov decision process (S, A, P<sub>a</sub>, R<sub>a</sub>) and the [Gym toolkit](https://gym.openai.com/) from OpenAI is employed to formulate the interface for the RL algorithms. Considering the scalability, completeness of the documentation, [Ray RLlib](https://ray.readthedocs.io/en/latest/rllib.html) is selected as the RL training framework in PaintRL.
 
 ### Observation:
 
-+ Pose of the spray gun
-+ Ratios of unpainted pixels and total pixels for circular sectors around the spray gun
+According to current design of observation, a workpiece can be subdivided into circular sectors relative to the tool center point (TCP) or subdivided into grids. The state is composed of the ratios of unpainted pixels and total pixels in each unit and the TCP position in principle directions of the workpiece. The three different kinds of representations is shown in the figure below.
 
 <p align="center">
-  <img src="assets/images/section_obs_door.png" width="50%"/>
+  <img src="assets/images/observations.png" width="100%"/>
 </p>
 
 ### Actions:
 
-+ Discrete actions which control the direction of the robot movement
+As shown in the figure below, three types of action are defined in PaintRL. They are:
+
++ Two-dimensional action, each dimension corresponds to an axis coordinate of the workpiece’s principal plane. 
++ One-dimensional action, derived from the 2D version by freezing the step size.
++ Discrete action, simplified from the 1D action by discretizing the directions.
 
 <p align="center">
-  <img src="assets/images/action_discrete.png" width="50%"/>
+  <img src="assets/images/actions.png" width="100%"/>
 </p>
 
 ### Reward:
 
-+ Number of newly painted pixels
-+ Time penalty
-+ Optional overlap penalty
+The reward is defined proportional to the newly painted pixels in each time step. To prevent the agent from doing some undesired behaviors, several penalties are designed based on the following heuristics:
+
++ Full coverage with shorter trajectory, time step penalty
++ Keep the paint cone on the workpiece, out of part penalty
++ Prevent unnecessary paint overlap, overlap penalty
++ Prefer a trajectory with less turning, turning penalty
+
+Furthermore, several conditions are introduced as termination signals for the experience sampling. These conditions help to make effective exploration:
+
++ Out of part termination
++ Limited episode length
++ Average painted pixels in each step
 
 ### Baseline:
 
-+ Quadratic sheet
-+ Zigzag pattern
+According to the survey of [Chen et al.](https://ieeexplore.ieee.org/document/4626515), two path patterns are widely used in previous research, namely the zigzag pattern and the spiral pattern (shown in the figure below). However, the spiral path performs poorly in terms of achieving the uniform coat thickness due to the discontinuous paint deposition during the turning of the spray tool.
 
 <p align="center">
-  <img src="assets/images/zigzag_hsi.png" width="50%"/>
+  <img src="assets/images/path_patterns.png" width="100%"/>
 </p>
+
+Both of the path patterns can be programmed as baseline. In our experiment, we took the zigzag pattern as the baseline.
 
 <a name="results"/>
 ## Results <a href="#toc" class="top-link">[Top]</a>
