@@ -1,8 +1,9 @@
 # PaintRL
 
-This project implements the idea of PaintRL, the original paper can be found [here](https://www.researchgate.net/publication/334453255_PaintRL_Coverage_Path_Planning_for_Industrial_Spray_Painting_with_Reinforcement_Learning). The code of the simulation part can be found in the folder `PaintRLEnv`, while the RL training scripts are located in the main folder.
+This project implements the idea of PaintRL. The original paper can be found [here](https://www.researchgate.net/publication/334453255_PaintRL_Coverage_Path_Planning_for_Industrial_Spray_Painting_with_Reinforcement_Learning). Further details are available on our [Github page](https://translearn.github.io/PaintRL/).
+The code of the simulation part can be found in the folder `PaintRLEnv`, while the RL training scripts are located in the main folder.
 
-Two RL environments exists in the project, namely the `PaintGymEnv` for real paint simulation and the `ParamTestEnv` for the test of RL hyperparameters. Correspondingly, the training scripts in the main folder can be divided into two groups, which is differentiated by the first word of the file name: `paint_xxx.py` are training scripts that uses real mesh models, while the `param_test_xxx.py` scripts aim to test the hyperparamters for each RL algorithms.
+Two RL environments exist in the project, namely the `PaintGymEnv` for real paint simulation and the `ParamTestEnv` for the test of RL hyperparameters. Correspondingly, the training scripts in the main folder can be divided into two groups, which is differentiated by the first word of the file name: `paint_xxx.py` are training scripts that uses real mesh models, while the `param_test_xxx.py` scripts aim to test the hyperparamters for each RL algorithms.
 
 Below is the introduction of the functions and variants in this project.
 
