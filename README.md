@@ -148,3 +148,13 @@ The text output in the simulation environment is used to display the diagnostic 
 ![paint_speed](assets/images/debug_text.png)
 
 The appearance of the text can be adjusted via the class attributes in the class `TextWriter` in file `PaintRLEnv/bullet_paint_wrapper.py`, including text size, color, etc.
+
+
+## Publication
+Further details can be found in the following [publication](https://www.researchgate.net/publication/334453255_PaintRL_Coverage_Path_Planning_for_Industrial_Spray_Painting_with_Reinforcement_Learning):
+```
+  title={PaintRL: Coverage Path Planning for Industrial Spray Painting with Reinforcement Learning}, 
+  booktitle={RSS Workshop on Closing the Reality Gap in Sim2real Transfer for Robotic Manipulation},
+  author={Kiemel, Jonas and Yang, Peiren and Meißner, Pascal and Kröger, Torsten},
+  year={2019},
+```
